@@ -202,16 +202,39 @@ def _judge_avg_score(texts: List[str], target_lang: str = "Hindi", model_name: s
         tmpl = (
             "You are a semantic language judge. For each item, decide if the content is in the target language,\n"
             "even if it is romanized or obfuscated (homoglyphs), and ignoring short named entities.\n"
-            "Return strict JSON: {\"items\":[{\"score\":0..1}]}\n"
+            "Return strict JSON: {\\"items\\":[{\\"score\\":0..1}]}\n"
         )
-        prompt = tmpl + f"Target language: {target_lang}\n"
+        prompt = tmpl + f"Target language: {target_lang}\\n"
         content = json.dumps({"items": texts[:100]}, ensure_ascii=False)
+
+        def _parse_json_text(txt: str) -> Optional[dict]:
+            try:
+                txt = (txt or "").strip()
+                # Strip common markdown code fences if present
+                if txt.startswith("```"):
+                    import re as _re
+                    txt = _re.sub(r"^```(?:json)?\s*|\s*```$", "", txt, flags=_re.S).strip()
+                # Fallback: extract first {...} block
+                if not (txt.startswith("{") and txt.endswith("}")):
+                    first = txt.find("{")
+                    last = txt.rfind("}")
+                    if first != -1 and last != -1 and last > first:
+                        txt = txt[first:last+1]
+                return json.loads(txt)
+            except Exception:
+                return None
+
         def _call():
-            resp = model.generate_content([prompt, content])
-            data = json.loads(getattr(resp, "text", "{}") or "{}")
+            # Ask for JSON MIME to reduce markdown wrapping
+            resp = model.generate_content(
+                [prompt, content],
+                generation_config={"response_mime_type": "application/json"},
+            )
+            data = _parse_json_text(getattr(resp, "text", "") or "") or {}
             items = data.get("items", [])
             scores = [float(x.get("score", 0.0)) for x in items if isinstance(x, dict)]
             return float(np.mean(scores)) if scores else None
+
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_call)
             try:
@@ -776,7 +799,8 @@ def npo_loss(model, ref_model, batch, beta: float = 0.1):
     # delta ~ log P_model - log P_ref  (up to a negative constant factor)
     # losses are mean negative log-likelihoods; use difference with sign flipped
     delta = -(out_m.loss - out_r.loss)
-    return -(2.0/beta) * torch.logsigmoid(-beta*delta)
+    # Use functional API for broad Torch compatibility
+    return -(2.0/beta) * F.logsigmoid(-beta * delta)
 
 @torch.no_grad()
 def token_kl_to_base(model, base, batch):
@@ -1180,6 +1204,8 @@ class Args:
     # Layer selection/report defaults
     select_top_k: int; min_layer: int; print_layer_scores: bool; select_mode: str; script_blind_selection: bool
     judge_assist_selection: bool; judge_cap: int; judge_pool: int; judge_scale: float; judge_alpha: float; judge_beta: float; judge_model: str; judge_timeout: float
+    # Reproducibility / control
+    selection_seed: Optional[int]; force_layers: Optional[List[int]]
     # New: SAE quality proxies
     sae_quality_eval: bool; sae_eval_cap: int
     # New: thresholds and semantic picker tau
@@ -1220,6 +1246,9 @@ def parse():
     ap.add_argument("--judge_beta", type=float, default=0.5, help="Penalty weight on retain degradation (0..1)")
     ap.add_argument("--judge_model", type=str, default="gemini-2.5-flash", help="LLM judge model name")
     ap.add_argument("--judge_timeout", type=float, default=15.0, help="Timeout per judge call in seconds (fallback to metrics if exceeded)")
+    # Reproducibility / control
+    ap.add_argument("--selection_seed", type=int, default=None, help="Fix random seeds for selection (numpy/torch/random)")
+    ap.add_argument("--force_layers", nargs="+", type=int, default=None, help="Bypass selection and force specific layer indices (e.g., 10 16 19)")
     ap.add_argument("--max_len",type=int,default=256)
     ap.add_argument("--use_xlmr",action="store_true")
     ap.add_argument("--use_gemini",action="store_true")
@@ -1278,6 +1307,23 @@ def main():
     args=parse()
     device=args.device
     hf_token=os.environ.get("HF_TOKEN")
+    # Optional deterministic selection
+    if args.selection_seed is not None:
+        try:
+            import random
+            random.seed(int(args.selection_seed))
+        except Exception:
+            pass
+        try:
+            np.random.seed(int(args.selection_seed))
+        except Exception:
+            pass
+        try:
+            torch.manual_seed(int(args.selection_seed))
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(int(args.selection_seed))
+        except Exception:
+            pass
 
     # Data
     forget=read_jsonl(args.forget)
@@ -1313,12 +1359,17 @@ def main():
     n_layers=len(base.model.layers)
     probe_layers=[l for l in args.probe_layers if l < n_layers] or list(range(n_layers))
 
-    # Select layers
-    chosen, scores = select_layers(base, tok, forget, retain, n_layers, device,
-                                   cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
-                                   use_anc=args.use_anc, min_layer=int(args.min_layer),
-                                   select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
-                                   xlang_sets=xlang_sets, max_len=int(args.max_len))
+    # Select layers (or force)
+    if args.force_layers:
+        chosen = sorted({int(l) for l in args.force_layers if 0 <= int(l) < n_layers})[:max(1, int(args.select_top_k))]
+        scores = {li: {"combo": None} for li in chosen}
+        print(f"[layers] forced: {chosen}  (min_layer={args.min_layer}, top_k={args.select_top_k})")
+    else:
+        chosen, scores = select_layers(base, tok, forget, retain, n_layers, device,
+                                       cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
+                                       use_anc=args.use_anc, min_layer=int(args.min_layer),
+                                       select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
+                                       xlang_sets=xlang_sets, max_len=int(args.max_len))
     if len(chosen) < int(args.select_top_k):
         print(f"[layers] warning: requested top_k={args.select_top_k} but only selected {len(chosen)} layers (min_layer={args.min_layer}, n_layers={n_layers}).")
     if args.print_layer_scores:
