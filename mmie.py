@@ -269,12 +269,29 @@ def collect_layer_means(model,tok,texts,layers,device,max_len=256,cap=1000,per_t
     return {li:(np.concatenate(acts[li],0) if acts[li] else np.zeros((0,model.config.hidden_size), dtype=np.float32)) for li in layers}
 
 def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: bool = False, min_layer: int = 0,
-                  select_mode: str = 'contrast', script_blind_selection: bool = True, xlang_sets: Optional[List[Tuple[str, List[str]]]] = None):
+                  select_mode: str = 'contrast', script_blind_selection: bool = True,
+                  xlang_sets: Optional[List[Tuple[str, List[str]]]] = None,
+                  max_len: int = 256):
     layers=[li for li in range(n_layers) if li >= max(0, int(min_layer))]
     # Optionally make selection script-blind by romanizing Devanagari prompts
     hi_sel = _romanize_texts(hi) if script_blind_selection else hi
-    A=collect_layer_means(model,tok,hi_sel,layers,device,cap=cap,per_token=True,tokens_per_seq=16)
-    B=collect_layer_means(model,tok,en,layers,device,cap=cap,per_token=True,tokens_per_seq=16)
+    A=collect_layer_means(model,tok,hi_sel,layers,device,max_len=max_len,cap=cap,per_token=True,tokens_per_seq=16)
+    B=collect_layer_means(model,tok,en,layers,device,max_len=max_len,cap=cap,per_token=True,tokens_per_seq=16)
+    # Precompute semantic probe AUCs once (batched across layers)
+    semantic_aucs_main: Dict[int, Dict[str, float]] = {}
+    semantic_neigh_maps: List[Dict[int, Dict[str, float]]] = []
+    if select_mode == 'semantic':
+        probe_cap = int(min(cap, 80))
+        try:
+            semantic_aucs_main = probes_auc(model, tok, hi_sel[:probe_cap], en[:probe_cap], layers, device, max_len=max_len)
+        except Exception:
+            semantic_aucs_main = {}
+        if xlang_sets:
+            for _, xt in xlang_sets:
+                try:
+                    semantic_neigh_maps.append(probes_auc(model, tok, xt[:probe_cap], en[:probe_cap], layers, device, max_len=max_len))
+                except Exception:
+                    semantic_neigh_maps.append({})
     scores={}
     for li in layers:
         X=A[li]; Y=B[li]
@@ -290,25 +307,13 @@ def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: boo
             cos=float(np.dot(Xs.mean(0),Ys.mean(0))/(np.linalg.norm(Xs.mean(0))+1e-8)/(np.linalg.norm(Ys.mean(0))+1e-8))
             anc=anc_similarity(Xs, Ys)
         if select_mode == 'semantic':
-            # Classifier AUC contrast specific to Hindi vs English minus neighbor languages vs English
-            # Reuse mean_activations + logistic regression helper
-            auc_hi = 0.5
-            try:
-                aucs_main = probes_auc(model, tok, hi_sel, en, [li], device)
-                auc_hi = float(aucs_main.get(li, {}).get('auc', 0.5))
-            except Exception:
-                pass
-            neighbor_aucs = []
-            if xlang_sets:
-                for _, xt in xlang_sets:
-                    try:
-                        aucs_n = probes_auc(model, tok, xt, en, [li], device)
-                        neighbor_aucs.append(float(aucs_n.get(li, {}).get('auc', 0.5)))
-                    except Exception:
-                        continue
-            neigh = float(np.mean(neighbor_aucs)) if neighbor_aucs else 0.5
+            auc_hi = float(semantic_aucs_main.get(li, {}).get('auc', 0.5))
+            if semantic_neigh_maps:
+                neighbor_aucs = [float(m.get(li, {}).get('auc', 0.5)) for m in semantic_neigh_maps]
+                neigh = float(np.mean(neighbor_aucs)) if neighbor_aucs else 0.5
+            else:
+                neigh = 0.5
             sem = max(0.0, auc_hi - neigh)
-            # Blend with contrast on similarity metrics to reduce tie saturation
             combo = 0.6*sem + 0.2*(1.0-cka) + 0.2*(1.0-proc)
         elif select_mode == 'similarity':
             if use_anc:
@@ -1082,10 +1087,10 @@ def perplexity(model,tok,texts,device)->float:
     return float(math.exp(np.mean(losses))) if losses else float("inf")
 
 @torch.no_grad()
-def mean_activations(model, tok, texts, layers, device):
+def mean_activations(model, tok, texts, layers, device, max_len: int = 256):
     acts = {li: [] for li in layers}
     for batch in chunked(texts, 8):
-        enc = tok(batch, return_tensors='pt', padding=True, truncation=True, max_length=256)
+        enc = tok(batch, return_tensors='pt', padding=True, truncation=True, max_length=max_len)
         enc = _to_model_device(model, enc)
         out = model(**enc, output_hidden_states=True)
         for li in layers:
@@ -1104,11 +1109,11 @@ def mean_activations(model, tok, texts, layers, device):
     return out
 
 
-def probes_auc(model, tok, pos, neg, probe_layers, device) -> Dict[int, Dict[str, float]]:
+def probes_auc(model, tok, pos, neg, probe_layers, device, max_len: int = 256) -> Dict[int, Dict[str, float]]:
     from sklearn.model_selection import train_test_split
     res = {}
-    Xp = mean_activations(model, tok, pos, probe_layers, device)
-    Xn = mean_activations(model, tok, neg, probe_layers, device)
+    Xp = mean_activations(model, tok, pos, probe_layers, device, max_len=max_len)
+    Xn = mean_activations(model, tok, neg, probe_layers, device, max_len=max_len)
     for li in probe_layers:
         Xp_li, Xn_li = Xp[li], Xn[li]
         if len(Xp_li) == 0 or len(Xn_li) == 0:
@@ -1313,7 +1318,7 @@ def main():
                                    cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
                                    use_anc=args.use_anc, min_layer=int(args.min_layer),
                                    select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
-                                   xlang_sets=xlang_sets)
+                                   xlang_sets=xlang_sets, max_len=int(args.max_len))
     if len(chosen) < int(args.select_top_k):
         print(f"[layers] warning: requested top_k={args.select_top_k} but only selected {len(chosen)} layers (min_layer={args.min_layer}, n_layers={n_layers}).")
     if args.print_layer_scores:
