@@ -1,0 +1,24 @@
+# 1) create venv + install
+python -m venv .venv && source .venv/bin/activate
+pip install -U pip && pip install -r requirements.txt
+
+# 2) set tokens
+cp .env.example .env
+# put your HF_TOKEN and GEMINI_API_KEY inside .env
+# (optional) set FASTTEXT_LID_PATH to lid.176.bin if you have it
+
+# 3) sanity run (small steps)
+python mmie.py \
+  --model meta-llama/Llama-2-7b-hf \
+  --forget data/forget_hi.jsonl \
+  --retain data/retain_en.jsonl \
+  --mixed  data/mixed.jsonl \
+  --xlang  data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --adversarial data/adversarial.jsonl \
+  --use_xlmr --use_gemini \
+  --seeds 42 43 44 \
+  --train_sae_steps 5000 \
+  --sae_k 32 \
+  --rank 4 \
+  --device cuda \
+  --out eval_report.json

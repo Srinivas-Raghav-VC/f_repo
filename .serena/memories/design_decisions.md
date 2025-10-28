@@ -1,0 +1,1 @@
+Delta-blended SAE gating rationale: reduce drift by adding only the SAE-induced change (D(z')-D(z)) to the original hidden state instead of replacing the state with D(z'). Activation saving rationale: enable reproducibility, analysis (Jaccard/angles), and debugging across runs without extra flags.

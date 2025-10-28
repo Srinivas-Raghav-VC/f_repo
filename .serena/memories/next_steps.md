@@ -1,0 +1,1 @@
+Added delta-blended SAE gating (conservative), added default activation saving, and prepared to add reversibility harness and Gemini synthetic pairs builder. Next: implement reversibility_harness.py (tiny LoRA recovery finetune on forget) and build_training_pairs.py (Gemini-generated preferred/dispreferred NPO pairs, adversarial variants).

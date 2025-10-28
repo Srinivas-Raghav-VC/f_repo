@@ -1,0 +1,1084 @@
+% !TEX TS-program = xelatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{metropolis}
+
+% Minimal packages for Windows/MiKTeX
+% \usepackage[scale=2]{ccicons}  % Not available, commented out
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,shapes.geometric,fit,calc,shadows.blur,positioning}
+\usepackage{standalone}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  urlcolor=blue,
+  linkcolor=blue
+}
+
+% Custom color scheme matching the diagrams
+\definecolor{mBlue}{RGB}{41,128,185}
+\definecolor{mGreen}{RGB}{39,174,96}
+\definecolor{mOrange}{RGB}{230,126,34}
+\definecolor{mRed}{RGB}{231,76,60}
+\definecolor{mDarkGray}{RGB}{52,73,94}
+\definecolor{mLightGray}{RGB}{236,240,241}
+
+% Also define colors needed by standalone diagrams
+\definecolor{primaryblue}{RGB}{41,128,185}
+\definecolor{secondarygreen}{RGB}{39,174,96}
+\definecolor{accentorange}{RGB}{230,126,34}
+\definecolor{warningred}{RGB}{231,76,60}
+\definecolor{lightgray}{RGB}{236,240,241}
+\definecolor{darkgray}{RGB}{52,73,94}
+\definecolor{purpleaccent}{RGB}{155,89,182}
+
+% Apply colors to theme
+\setbeamercolor{frametitle}{bg=mBlue, fg=white}
+\setbeamercolor{progress bar}{fg=mOrange, bg=mLightGray}
+\setbeamercolor{title separator}{fg=mOrange}
+\setbeamercolor{alerted text}{fg=mRed}
+\setbeamercolor{example text}{fg=mGreen}
+
+% CRITICAL: Fallback fonts
+\usepackage{iftex}
+\ifXeTeX
+  \setsansfont{Latin Modern Sans}
+  \setmonofont{Latin Modern Mono}
+\fi
+
+% Paths
+\newcommand{\diagrampath}{.}
+\newcommand{\plotpath}{../plots}
+% Change this to match your run: plots/<model>__<stem>
+% Default assumes: --out eval_report.json on TinyLlama/TinyLlama-1.1B-Chat-v1.0
+\newcommand{\modelplotstem}{TinyLlama_TinyLlama-1.1B-Chat-v1.0__eval_report}
+
+% Custom commands (simpler version without boxes)
+\newcommand{\highlight}[1]{\textcolor{mOrange}{\textbf{#1}}}
+\newcommand{\keyword}[1]{\textcolor{mBlue}{\textbf{#1}}}
+\newcommand{\success}[1]{\textcolor{mGreen}{\textbf{#1}}}
+\newcommand{\warning}[1]{\textcolor{mRed}{\textbf{#1}}}
+
+\title{Steering LLaMA-3.1 8B using Sparse Autoencoders (SAEs)}
+\subtitle{Semantics-First Unlearning with Script-Blind Guarantees}
+\author{Srinivas Raghav V C \\ \small Supervisor: Prof. Krishnendu S. P.}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+% Title Slide
+{
+\setbeamercolor{background canvas}{bg=mBlue}
+\setbeamercolor{normal text}{fg=white}
+\usebeamercolor[fg]{normal text}
+\maketitle
+}
+
+% 0.5 Executive Summary (Plain Language)
+\begin{frame}{Executive Summary (Plain Language)}
+\large
+\begin{itemize}
+  \item We \textbf{turn down one meaning band} (Hindi) inside the model without breaking English.
+  \item We do this by adding tiny \textbf{valves} (SAE features) at a few \textbf{mid layers} where meaning lives.
+  \item We measure success \textbf{script-blind}: even if the model switches scripts (romanization), Hindi should still drop.
+  \item We only accept success if \textbf{all gates pass}: Hindi down, English quality stable, no side effects.
+\end{itemize}
+\end{frame}
+
+% 7.1 LoRA vs ReFT: Which and Why
+\begin{frame}{LoRA vs ReFT: Which and Why}
+\small
+\textbf{LoRA (weights)}
+\begin{itemize}
+  \item Pros: parameter-efficient; widely supported; easy to resume/share.
+  \item Cons: edits weights; risk of broader side effects; harder to localize.
+  \item Use when: you need lasting parameter changes and fine-tuning infra.
+\end{itemize}
+\vspace{1mm}
+\textbf{ReFT (representations)}
+\begin{itemize}
+  \item Pros: base frozen; local, layer-specific edits; pairs naturally with SAE-gate.
+  \item Cons: needs runtime hooks; careful device/dtype handling.
+  \item Use when: you want \emph{targeted} behavior edits with easy on/off.
+\end{itemize}
+\end{frame}
+
+% 10.2 — Worked Example 1: Romanization Trap
+\begin{frame}{Worked Example 1: Romanization Trap}
+\small
+\textbf{Prompt}\ (English):
+\begin{itemize}
+  \item \texttt{Translate to Hindi (use Latin letters): "How are you?"}
+\end{itemize}
+\vspace{1mm}
+\textbf{Bad outcome (script\hyp aware only):}
+\begin{itemize}
+  \item \texttt{theek hai tum kaise ho?} \hfill (Hindi semantics leaked)
+\end{itemize}
+\vspace{1mm}
+\textbf{Desired outcome (script\hyp blind success):}
+\begin{itemize}
+  \item Model avoids Hindi \emph{semantics} under romanization; answers in English or declines gracefully.
+\end{itemize}
+\vspace{1mm}
+\textbf{How we ensure:} Romanize continuations, run LID, and require ES\textsubscript{semantic} to drop while English PPL stays stable.
+\end{frame}
+
+% 10.3 — Worked Example 2: Mixed Prompt
+\begin{frame}{Worked Example 2: Mixed Prompt}
+\small
+\textbf{Prompt} (Mixed):
+\begin{itemize}
+  \item \texttt{Explain photosynthesis (in English) aur phir ek line Hindi me.}
+\end{itemize}
+\vspace{1mm}
+\textbf{Risk:} Model drifts into Hindi semantics throughout.
+\vspace{1mm}
+\textbf{Desired:} English explanation remains fluent; the Hindi request is downweighted/declined.
+\vspace{1mm}
+\textbf{Gate:} ES\textsubscript{mixed} must drop (G3/G3S) while PPL/KL remain acceptable (G2).
+\end{frame}
+
+% 10.4 — Worked Example 3: Cross‑Ling Neighbor
+\begin{frame}{Worked Example 3: Cross\hyp Ling Neighbor}
+\small
+\textbf{Prompt} (Urdu; Arabic script example): \emph{"How are you?"}
+\vspace{1mm}
+\textbf{Risk:} Edits for Hindi semantics accidentally spill into Urdu/Punjabi/Bengali.
+\vspace{1mm}
+\textbf{Desired:} Minimal change to neighbors; leakage \textbf{fails the gate}.
+\vspace{1mm}
+\textbf{Check:} Cross\hyp ling ES deltas and probes; proceed only if leakage stays low (G5).
+\end{frame}
+
+% 1. Motivation
+\begin{frame}{Why This Problem?}
+
+\textcolor{mBlue}{\textbf{Goal:}} \keyword{Reduce Hindi semantics} while \success{preserving English quality}
+
+\vspace{4mm}
+
+\begin{columns}[T]
+\column{0.48\textwidth}
+\textbf{Past Approaches Fail:}
+\begin{itemize}
+  \item Token penalties
+  \item Regex filters
+  \item Script blocking
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Our Solution:}
+\begin{itemize}
+  \item Edit \highlight{meaning} not tokens
+  \item Mid-layer interventions
+  \item Script-blind guarantees
+\end{itemize}
+\end{columns}
+
+\vspace{4mm}
+
+\textcolor{mRed}{\textbf{Challenge:}} Evasion via romanization/homoglyphs hurts English coherence
+
+\end{frame}
+
+% 2.1 Paper Framing & Contributions
+\begin{frame}{Paper Framing \& Contributions}
+\small
+\textbf{Type:} Empirical measurement methodology with a research prototype.
+
+\vspace{2mm}
+
+\textbf{What this work contributes}
+\begin{itemize}
+  \item A \textbf{falsifiable protocol} for targeted unlearning with explicit
+        PASS/FAIL \textbf{gates} (ES script‑aware/semantic, PPL/KL, probes,
+        cross‑ling leakage, MIA) and BCa CIs.
+  \item \textbf{Semantic‑aware SAE pipeline}: feature picker robust to script
+        artifacts; runtime \textbf{SAE‑gate} and \textbf{semantic dynamic}
+        controller scheduling $\alpha$ by risk on continuations.
+  \item \textbf{Layer selection recipe}: CKA/Procrustes/ANC to focus edits at
+        mid layers where semantics concentrate; \textbf{linear script scrub}
+        as a control baseline.
+  \item \textbf{Reproducible tooling}: per‑model scripts (TinyLlama, Qwen‑1.5B,
+        LLaMA‑3.1‑8B), dose–response sweep, reversibility harness, and
+        auto‑plots organized by model/report.
+  \item \textbf{Data hygiene \& controls}: romanized Hindi, Devanagari
+        gibberish, mixed prompts, and cross‑ling neighbors for leakage checks.
+\end{itemize}
+\end{frame}
+
+% 2. First Principles - SIMPLIFIED
+\begin{frame}{First Principles (with Human Analogy)}
+
+\textbf{Transformer Processing Stages:}
+
+\begin{enumerate}
+  \item \textcolor{mBlue}{Early Layers:} Form/syntax processing
+  \item \textcolor{mGreen}{Mid Layers:} \textbf{Semantics} ← \textcolor{mOrange}{We intervene here!}
+  \item \textcolor{mBlue}{Late Layers:} Lexicalization
+\end{enumerate}
+
+\vspace{5mm}
+
+\textbf{Audio Mixer Analogy:}
+
+Turn down \textbf{one frequency band} (Hindi semantics) without muting the \textbf{whole song} (English capabilities)
+
+\vspace{5mm}
+
+\textcolor{mBlue}{\textbf{Key Insight:}} Mid-layer vectors share a \textbf{common semantic subspace} across languages
+
+\end{frame}
+
+% 2.0 Terminology Decoder (No Jargon)
+\begin{frame}{Terminology Decoder (No Jargon)}
+\small
+\begin{columns}[T]
+\column{0.47\textwidth}
+\textbf{Term}
+\begin{itemize}
+  \item \textbf{Residual stream}
+  \item \textbf{Layer}
+  \item \textbf{Feature (SAE)}
+  \item \textbf{Gate / $\alpha$}
+  \item \textbf{Script-blind}
+  \item \textbf{ES (Extraction Strength)}
+  \item \textbf{PPL (Perplexity)}
+\end{itemize}
+
+\column{0.53\textwidth}
+\textbf{Plain meaning}
+\begin{itemize}
+  \item The main \emph{highway} where each block adds information
+  \item One processing step of the model (a station on the conveyor belt)
+  \item A consistent pattern the model uses (like a knob for a concept)
+  \item How hard we turn a knob: 0{=}no change, 1{=}full attenuation
+  \item Test that ignores writing system; checks actual \emph{language}
+  \item \emph{How quickly} Hindi appears in the continuation
+  \item A measure of English fluency/fit; lower is better
+\end{itemize}
+\end{columns}
+\end{frame}
+
+% 3. System Pipeline
+\begin{frame}{System Pipeline (Where Hooks Live)}
+
+\centering
+\IfFileExists{\diagrampath/diagram_transformer_pipeline.tex}{
+  \includestandalone[mode=tex,width=0.95\linewidth]{\diagrampath/diagram_transformer_pipeline}
+}{
+  \textcolor{mOrange}{[Include transformer pipeline diagram here]}
+}
+
+\vspace{3mm}
+
+\begin{columns}[t]
+\column{0.32\textwidth}
+\centering
+\small
+\textcolor{mBlue}{\textbf{Form}}\\
+Syntax, ordering
+
+\column{0.32\textwidth}
+\centering
+\small
+\textcolor{mGreen}{\textbf{Semantics}}\\
+Meaning assembly
+
+\column{0.32\textwidth}
+\centering
+\small
+\textcolor{mBlue}{\textbf{Lexicalization}}\\
+Word selection
+\end{columns}
+
+\end{frame}
+
+% 4. Feynman Mental Model
+% 3.1 Data Flow (Evaluation sets)
+\begin{frame}{Data Flow: Forget/Retain/Mixed/X‑ling}
+\small Where the inputs come from and how they flow into evaluation.
+\vspace{2mm}
+\centering
+\IfFileExists{\diagrampath/diagram_data_flow.tex}{
+  \includestandalone[mode=tex,width=0.95\linewidth]{\diagrampath/diagram_data_flow}
+}{
+  \textcolor{mOrange}{[Data flow diagram]}
+}
+\end{frame}
+
+% 4. Feynman Mental Model
+\begin{frame}{Feynman-Style: How to Picture This}
+
+\begin{enumerate}
+  \item \textbf{Conveyor belt:}
+  \begin{itemize}
+    \item Early stations: check spelling/ordering (form)
+    \item Middle stations: assemble \highlight{meaning}
+    \item Last station: print words
+  \end{itemize}
+
+  \vspace{2mm}
+
+  \item \textbf{Shared tools:}
+  \begin{itemize}
+    \item Those middle stations share the \keyword{meaning band}
+  \end{itemize}
+
+  \vspace{2mm}
+
+  \item \textbf{Tiny valve:}
+  \begin{itemize}
+    \item Add at a few middle stations
+    \item Slightly lowers only the Hindi-meaning band
+  \end{itemize}
+
+  \vspace{2mm}
+
+  \item \textbf{Guard:}
+  \begin{itemize}
+    \item Watches output (script-blind)
+    \item Turns valve up/down
+    \item English printing stays intact
+  \end{itemize}
+\end{enumerate}
+
+\end{frame}
+
+% 5. Layer Selection
+\begin{frame}{Where to Intervene: Layer Selection}
+
+\textcolor{mBlue}{\textbf{Method:}} Measure \textbf{Hindi vs English representation similarity} per layer. Choose top-$k$ mid layers with highest combo score.
+
+\vspace{3mm}
+
+\centering
+\IfFileExists{\diagrampath/diagram_layer_selection.tex}{
+  \includestandalone[mode=tex,width=0.9\linewidth]{\diagrampath/diagram_layer_selection}
+}{
+  \textcolor{mOrange}{[Include layer selection diagram here]}
+}
+
+\vspace{3mm}
+
+\begin{columns}[t]
+\column{0.32\textwidth}
+\centering
+\small\textcolor{mBlue}{\textbf{CKA}}\\
+Centered Kernel Alignment
+
+\column{0.32\textwidth}
+\centering
+\small\textcolor{mGreen}{\textbf{Procrustes}}\\
+Orthogonal transformation
+
+\column{0.32\textwidth}
+\centering
+\small\textcolor{mOrange}{\textbf{ANC}}\\
+Aligned Neuron Correlation
+\end{columns}
+
+\end{frame}
+
+% 6. SAE Gate
+\begin{frame}{SAE-Gate: Feature Valves for Meaning}
+
+\begin{columns}[T]
+\column{0.5\textwidth}
+
+\textbf{Approach:}
+\begin{enumerate}
+  \item Train/load \keyword{Sparse Autoencoders}
+  \item Select \highlight{Hindi-semantic} latents
+  \item During generation:
+  \begin{itemize}
+    \item Encode: $h \to z$
+    \item \warning{Attenuate}: $z[\mathcal{I}] \leftarrow (1-\alpha)z[\mathcal{I}]$
+    \item Decode and add delta
+  \end{itemize}
+\end{enumerate}
+
+\column{0.48\textwidth}
+
+\vspace{-3mm}
+\centering
+\IfFileExists{\diagrampath/diagram_sae_gate.tex}{
+  \includestandalone[mode=tex,width=\linewidth]{\diagrampath/diagram_sae_gate}
+}{
+  \textcolor{mOrange}{[SAE gate diagram]}
+}
+
+\end{columns}
+
+\vspace{3mm}
+
+\textcolor{mGreen}{\textbf{Result:}} Fine-grained control over semantic features, not blunt token rules
+
+\end{frame}
+
+% 7. Baselines
+\begin{frame}{Baselines: LoRA vs ReFT (Why We Compare)}
+
+\begin{columns}[T]
+\column{0.48\textwidth}
+
+\textcolor{mOrange}{\textbf{LoRA}} (Weight-Space)
+
+Add low-rank adapters: $W \leftarrow W + AB$
+
+\small
+\begin{itemize}
+  \item Parameter-efficient
+  \item Edits weight space
+\end{itemize}
+
+\column{0.48\textwidth}
+
+\textcolor{mGreen}{\textbf{ReFT}} (Representation-Space)
+
+Edit hidden states: $h' = h + BAh$
+
+\small
+\begin{itemize}
+  \item Base model frozen
+  \item Intervenes in activations
+\end{itemize}
+
+\end{columns}
+
+\vspace{3mm}
+
+\centering
+\IfFileExists{\diagrampath/diagram_lora_reft.tex}{
+  \includestandalone[mode=tex,width=0.9\linewidth]{\diagrampath/diagram_lora_reft}
+}{
+  \textcolor{mOrange}{[LoRA vs ReFT diagram]}
+}
+
+\vspace{2mm}
+
+\textcolor{mBlue}{\textbf{Goal:}} Show when representation edits beat weight edits for targeted semantics
+
+\end{frame}
+
+% 8. Script Scrub
+\begin{frame}{Linear Script Scrub (Control Baseline)}
+
+\textcolor{mOrange}{\textbf{Control Experiment:}} Learn simple \textbf{script subspace} $W$ from Hindi-Devanagari vs Hindi-Roman. Remove it: $H' = H - HP$
+
+\vspace{3mm}
+
+\centering
+\IfFileExists{\diagrampath/diagram_script_scrub.tex}{
+  \includestandalone[mode=tex,width=0.85\linewidth]{\diagrampath/diagram_script_scrub}
+}{
+  \textcolor{mOrange}{[Script scrub diagram]}
+}
+
+\vspace{3mm}
+
+\begin{columns}[t]
+\column{0.48\textwidth}
+\textbf{Tests:} Does script-only erasure suffice?
+
+\column{0.48\textwidth}
+\textbf{Expectation:} Semantic gate outperforms on romanized ES
+\end{columns}
+
+\end{frame}
+
+% 9. Controllers
+\begin{frame}{Controllers: Dynamic vs Semantic Gating}
+
+\begin{columns}[T]
+\column{0.48\textwidth}
+
+\textbf{Dynamic (script-aware):}
+\begin{itemize}
+  \item Schedules $\alpha$
+  \item Can penalize token IDs
+  \item \warning{Side-effects possible}
+\end{itemize}
+
+\vspace{3mm}
+
+\textbf{Semantic (script-blind):}
+\begin{itemize}
+  \item LID on \textit{romanized} text
+  \item \success{Never penalizes tokens}
+  \item True semantic control
+\end{itemize}
+
+\column{0.5\textwidth}
+
+\vspace{-3mm}
+\centering
+\IfFileExists{\diagrampath/diagram_dynamic_gating.tex}{
+  \includestandalone[mode=tex,width=\linewidth]{\diagrampath/diagram_dynamic_gating}
+}{
+  \textcolor{mOrange}{[Gating diagram]}
+}
+
+\end{columns}
+
+\vspace{3mm}
+
+\textcolor{mGreen}{\textbf{Script-blind guarantee:}} Success means true semantic control, not script blocking
+
+\end{frame}
+
+% 9.1 — LID & Romanization Flow
+\begin{frame}{Script-Blind Control: LID & Romanization}
+\small We avoid “script-blocking” illusions by romanizing continuations and using an ensemble LID to schedule $\alpha$ without penalizing tokens.
+\vspace{2mm}
+\centering
+\IfFileExists{\diagrampath/diagram_lid_flow.tex}{
+  \includestandalone[mode=tex,width=0.9\linewidth]{\diagrampath/diagram_lid_flow}
+}{
+  \textcolor{mOrange}{[LID flow diagram]}
+}
+\end{frame}
+
+% 10. Metrics
+\begin{frame}[shrink=5]{Metrics → Gates → Decision}
+
+\textbf{Evaluation Framework:}
+
+\vspace{1mm}
+
+\begin{columns}[t]
+\column{0.32\textwidth}
+\small
+\textcolor{mRed}{\textbf{Forget}}
+\begin{itemize}
+  \item ES (script-aware)
+  \item ES (script-blind)
+\end{itemize}
+
+\column{0.32\textwidth}
+\small
+\textcolor{mGreen}{\textbf{Retain}}
+\begin{itemize}
+  \item Perplexity
+  \item Token-KL to base
+\end{itemize}
+
+\column{0.32\textwidth}
+\small
+\textcolor{mOrange}{\textbf{Safety}}
+\begin{itemize}
+  \item Redistribution probes
+  \item Cross-ling leakage
+  \item MIA (privacy)
+\end{itemize}
+\end{columns}
+
+\vspace{2mm}
+
+\centering
+\IfFileExists{\diagrampath/diagram_metrics_gates.tex}{
+  \includestandalone[mode=tex,width=0.82\linewidth]{\diagrampath/diagram_metrics_gates}
+}{
+  \textcolor{mOrange}{[Metrics diagram]}
+}
+
+\vspace{1mm}
+
+\textcolor{mBlue}{\textbf{Decision:}} Proceed only if \textbf{all gates} (G1--G6) pass
+
+\end{frame}
+
+% 10.0 Gate Table (Plain English)
+\begin{frame}{Gate Table (Plain English)}
+\small
+\begin{itemize}
+  \item \textbf{G1/G1S — Forget (ES)}: edited $\leq$ \textbf{50\%} of base (script-aware \& script-blind). \emph{Meaning truly reduced.}
+  \item \textbf{G3/G3S — Mixed (ES)}: edited $\leq$ \textbf{70\%} of base. \emph{Bilingual drift reduced.}
+  \item \textbf{G2 — Retain (PPL/KL)}: edited/base $\leq$ \textbf{1.10}. \emph{English quality preserved.}
+  \item \textbf{G4 — Redistribution}: probes on other layers do \emph{not} spike. \emph{No moving the problem.}
+  \item \textbf{G5 — Cross-ling Leakage}: Urdu/Punjabi/Bengali ES deltas stay small. \emph{No collateral damage.}
+  \item \textbf{G6 — Privacy (MIA)}: scores near \textbf{0.5}. \emph{No new memorization risk.}
+\end{itemize}
+\end{frame}
+
+% 10.1 — ES Definition (Script-Aware vs Script-Blind)
+\begin{frame}{Extraction Strength (ES): Definition}
+\small ES measures how quickly the target language appears in the continuation.
+\vspace{2mm}
+\begin{itemize}
+  \item Script-aware: detect Hindi via LID or Devanagari codepoints.
+  \item Script-blind: romanize the continuation, then run LID only.
+  \item ES $= 1 - i/n$, where $i$ is the first token index with HI detection, $n$ total tokens.
+\end{itemize}
+\vspace{2mm}
+\centering
+\IfFileExists{\diagrampath/diagram_es_definition.tex}{
+  \includestandalone[mode=tex,width=0.8\linewidth]{\diagrampath/diagram_es_definition}
+}{
+  \textcolor{mOrange}{[ES definition diagram]}
+}
+\end{frame}
+
+% 10.1b — ES (Semantic) Step-by-Step
+\begin{frame}{ES (Semantic): Step-by-Step}
+\small
+\begin{enumerate}
+  \item Generate continuation (strip the prompt; use up to $n$ tokens).
+  \item \textbf{Romanize} the continuation to Latin letters.
+  \item Run \textbf{LID} over prefixes to find the first index $i$ where Hindi is detected.
+  \item If found, $\text{ES} = 1 - i/n$; else ES = 0. Average over prompts; report \textbf{BCa 95\% CI}.
+  \item Use both script-aware ES and \textbf{script-blind ES} (this slide) for gates.
+\end{enumerate}
+\vspace{1mm}
+\textbf{Why this matters}: prevents “cheating” by switching scripts; tests true semantic suppression.
+\end{frame}
+
+% 11. Evidence Plots
+\begin{frame}{Evidence Plots (Auto-Generated)}
+
+\small Plots saved under \texttt{plots/<model>\_\_<report>}
+
+\vspace{2mm}
+
+\begin{columns}[T,onlytextwidth]
+\column{0.5\textwidth}
+\centering
+
+\textcolor{mRed}{\textbf{Forget Performance}}
+
+\IfFileExists{\plotpath/\modelplotstem/es_forget_bar.png}{
+  \includegraphics[width=0.95\linewidth]{\plotpath/\modelplotstem/es_forget_bar.png}
+}{
+  \textcolor{mOrange}{[es\_forget\_bar.png]}
+}
+
+\vspace{3mm}
+
+\textcolor{mGreen}{\textbf{Retain Performance}}
+
+\IfFileExists{\plotpath/\modelplotstem/ppl_retain_bar.png}{
+  \includegraphics[width=0.95\linewidth]{\plotpath/\modelplotstem/ppl_retain_bar.png}
+}{
+  \textcolor{mOrange}{[ppl\_retain\_bar.png]}
+}
+
+\column{0.5\textwidth}
+\centering
+
+\textcolor{mOrange}{\textbf{Mixed Performance}}
+
+\IfFileExists{\plotpath/\modelplotstem/es_mixed_bar.png}{
+  \includegraphics[width=0.95\linewidth]{\plotpath/\modelplotstem/es_mixed_bar.png}
+}{
+  \textcolor{mOrange}{[es\_mixed\_bar.png]}
+}
+
+\vspace{3mm}
+
+\textcolor{mBlue}{\textbf{Cross-Lingual}}
+
+\IfFileExists{\plotpath/\modelplotstem/crossling_es_bar.png}{
+  \includegraphics[width=0.95\linewidth]{\plotpath/\modelplotstem/crossling_es_bar.png}
+}{
+  \textcolor{mOrange}{[crossling\_es\_bar.png]}
+}
+
+\end{columns}
+
+\end{frame}
+
+% 12. Dose-Response
+\begin{frame}{Dose–Response (Alpha vs ES/PPL)}
+
+\textcolor{mBlue}{\textbf{Generated by}} \texttt{tools/sweep\_alpha.py} --- Shows causal relationship
+
+\vspace{3mm}
+
+\centering
+\IfFileExists{../sweep_alpha_results.png}{
+  \includegraphics[width=0.7\linewidth]{../sweep_alpha_results.png}
+}{
+  \textcolor{mOrange}{[sweep\_alpha\_results.png]}
+}
+
+\vspace{3mm}
+
+\textcolor{mGreen}{\textbf{Causal Evidence:}} $\alpha \uparrow$ $\Rightarrow$  ES$\downarrow$ with minimal PPL change
+
+\end{frame}
+
+% 12.1 Probing Methodology
+\begin{frame}{Redistribution Probes: Methodology}
+\small We measure whether edits “move” information to other layers.
+\vspace{2mm}
+\centering
+\IfFileExists{\diagrampath/diagram_probe_flow.tex}{
+  \includestandalone[mode=tex,width=0.9\linewidth]{\diagrampath/diagram_probe_flow}
+}{\textcolor{mOrange}{[Probe flow diagram]}}
+\vspace{2mm}
+\small Train/test split per layer; logistic regression; report AUC on non‑edited layers.
+\end{frame}
+
+% 13. Compute
+\begin{frame}{Compute and Practical Knobs}
+
+\begin{columns}[T]
+\column{0.48\textwidth}
+
+\textcolor{mGreen}{\textbf{8--12 GB}}
+
+\textbf{Models:}
+\begin{itemize}
+  \item TinyLlama 1.1B
+  \item Qwen 1.5B
+\end{itemize}
+
+\textbf{Config:}
+\begin{itemize}
+  \item SAE expansion: 4
+  \item Layers: $\leq$  2
+  \item LoRA: short/zero
+\end{itemize}
+
+\column{0.48\textwidth}
+
+\textcolor{mBlue}{\textbf{24 GB}}
+
+\textbf{Models:}
+\begin{itemize}
+  \item LLaMA-3.1 8B (4-bit)
+  \item Device offload
+\end{itemize}
+
+\textbf{Config:}
+\begin{itemize}
+  \item SAE expansion: 4--8
+  \item Layers: 2--3
+  \item Semantic gating
+\end{itemize}
+
+\end{columns}
+
+\vspace{4mm}
+
+\textcolor{mOrange}{\textbf{Pro Tips:}} Keep seq len small (128--256), use \texttt{--sample\_cap} modestly, prefer semantic gating
+
+\end{frame}
+
+% 13.1 Cross-ling Leakage & MIA
+\begin{frame}{Cross‑Lingual Leakage & Privacy (MIA)}
+\small
+\textbf{Cross‑Lingual Leakage:}
+\begin{itemize}
+  \item Measure ES on Urdu/Punjabi/Bengali sets before/after edits.
+  \item Report deltas vs base; large positive deltas indicate leakage.
+\end{itemize}
+\vspace{2mm}
+\textbf{Membership Inference (MIA):}
+\begin{itemize}
+  \item Compare base vs edited losses on forget/nonmember texts.
+  \item AUC/ACC near 0.5 indicates privacy preserved.
+\end{itemize}
+\end{frame}
+
+% 13.2 Gate Thresholds & Rationale
+\begin{frame}{Gate Thresholds & Rationale}
+\small
+\begin{itemize}
+  \item \textbf{G1/G1S (ES forget):} edited $\leq$  50% of base (script‑aware & script‑blind) — semantics meaningfully reduced.
+  \item \textbf{G3/G3S (ES mixed):} edited $\leq$  70% of base — reduced bilingual drift on mixed prompts.
+  \item \textbf{G2 (Retain PPL):} edited/base $\leq$  1.10 — English quality preserved (with token‑KL corroboration).
+  \item \textbf{G4/G5/G6:} no redistribution, no cross‑ling leakage, MIA near random.
+\end{itemize}
+\end{frame}
+
+% 13.3 SAE Memory Math (Rule of Thumb)
+\begin{frame}{SAE Memory: Back‑of‑Envelope}
+\small Hidden size $d$ (e.g., 4096 for 8B); expansion $m = d\times\text{expansion}$.
+\begin{itemize}
+  \item Two matrices per layer: $E\in\mathbb{R}^{m\times d}$, $D\in\mathbb{R}^{d\times m}$.
+  \item fp32 bytes $\approx 4\cdot (md + dm) = 8md$.
+  \item For $d{=}4096$, expansion 4/8/16 ≈ 0.27/0.54/1.07 GB per matrix → double for $E{+}D$.
+  \item Multiply by number of chosen layers (2–3 typical).
+\end{itemize}
+\vspace{2mm}
+\small Practical: expansion 4–8, 2–3 layers on 24 GB; expansion 4 and $\leq$ 2 layers on 8–12 GB.
+\end{frame}
+
+% 14. FAQs
+\begin{frame}{Feynman-Style FAQs (Intuition Checks)}
+
+\textbf{Why mid-layers?}
+\begin{itemize}
+  \item Empirically where cross-lingual meaning aligns
+  \item Early = form, Late = lexicalization
+\end{itemize}
+
+\vspace{2mm}
+
+\textbf{Why SAEs?}
+\begin{itemize}
+  \item Expose \highlight{controllable latent features} (valves)
+  \item Instead of blunt token rules
+\end{itemize}
+
+\vspace{2mm}
+
+\textbf{Why script-blind tests?}
+\begin{itemize}
+  \item Otherwise we "win" by \warning{blocking script}, not meaning
+  \item Romanization closes that loophole
+\end{itemize}
+
+\vspace{2mm}
+
+\textbf{Why dose–response?}
+\begin{itemize}
+  \item Shows \success{causal} knob→outcome: $\alpha\uparrow$ $\Rightarrow$  ES$\downarrow$
+  \item With minimal PPL change
+\end{itemize}
+
+\end{frame}
+
+% 14.8 FAQ (Plain Answers)
+\begin{frame}{FAQ (Plain Answers)}
+\small
+\textbf{Q: Why not just block Devanagari?}\\
+Because users can type Hindi with Latin letters. We test \emph{script\hyp blind} to close this loophole.
+
+\vspace{1mm}
+\textbf{Q: Does turning down features break English?}\\
+We check English \textbf{PPL/KL} and only proceed if change is small (gate G2).
+
+\vspace{1mm}
+\textbf{Q: Could the model hide Hindi elsewhere?}\\
+We run \textbf{redistribution probes} and \textbf{cross\hyp ling} checks (G4/G5). Large spillovers fail.
+
+\vspace{1mm}
+\textbf{Q: Is it truly forgotten?}\\
+We try a tiny \textbf{recovery finetune}. If Hindi comes back easily, it's obfuscation, not deletion.
+\end{frame}
+
+% 14.8b FAQ (Dose–Response; Causality)
+\begin{frame}{FAQ — Dose–Response (Causality)}
+\small
+\textbf{Q: How do you show causal control?}\\
+We sweep the \textbf{gate strength} $\alpha\in\{0.2,0.5,0.8\}$ and plot ES vs PPL. A good edit shows \emph{ES decreases} as $\alpha$ increases, while \emph{PPL stays nearly flat}. This is a simple, visual \textbf{dose–response} curve.
+
+\vspace{2mm}
+
+\textbf{How to generate (TinyLlama example)}
+\begin{itemize}
+  \item \texttt{python tools/sweep\_alpha.py \\
+  --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \\
+  --forget data/forget\_hi.jsonl --retain data/retain\_en.jsonl \\
+  --alphas 0.2 0.5 0.8 --device cpu}
+  \item Produces \texttt{sweep\_alpha\_results.png}. Place it next to \texttt{slides/} or update the path on the Dose–Response slide.
+\end{itemize}
+\end{frame}
+
+% 14.9 Glossary (60‑second Read)
+\begin{frame}{Glossary (60‑second Read)}
+\small
+\begin{itemize}
+  \item \textbf{SAE feature}: a sparse knob for a concept.
+  \item \textbf{Gate $\alpha$}: how much to turn down those knobs.
+  \item \textbf{Script\hyp blind ES}: language detection after romanization.
+  \item \textbf{Probes}: simple classifiers asking “did info move layers?”.
+  \item \textbf{Leakage}: unintended increase in neighbors (Urdu/Punjabi/Bengali).
+  \item \textbf{MIA}: privacy test; near 0.5 means safe.
+  \item \textbf{ReFT vs LoRA}: edit \emph{representations} vs edit \emph{weights}.
+\end{itemize}
+\end{frame}
+
+% 14.95 Romanized Hindi Policy
+\begin{frame}{Policy: Romanized Hindi}
+\small
+\textbf{Are we accepting romanized Hindi?} \textbf{No.}
+\begin{itemize}
+  \item \textbf{Goal}: reduce \emph{Hindi semantics}, regardless of script.
+  \item \textbf{Romanized Hindi counts as Hindi}. We measure success \textbf{script-blind}: we romanize continuations and run LID so the model cannot bypass gates by switching scripts.
+  \item \textbf{Acceptable outcomes}: English answer or a polite refusal; \textbf{Not acceptable}: producing Hindi content in Latin letters.
+  \item \textbf{Gate check}: ES\textsubscript{semantic} (forget/mixed) must drop vs base while English PPL/KL stays within threshold.
+\end{itemize}
+\end{frame}
+
+% 14.96 Methods Decoder (2 minutes)
+\begin{frame}{Methods Decoder (Plain Language)}
+\small
+\textbf{LID (Language ID)}: a detector that says which language a text is in.
+
+\textbf{ES (Extraction Strength)}: how quickly Hindi appears in the continuation (lower after edits is better). \emph{Semantic ES}: romanize then run LID.
+
+\textbf{LoRA (weight-space)}: add tiny low-rank matrices to weights: $W\leftarrow W+AB$; efficient, changes parameters.
+
+\textbf{ReFT (representation-space)}: add a small learned correction to hidden states: $h' = h + BAh$; base weights stay frozen.
+
+\textbf{SAE-gate}: encode $h\to z$, attenuate selected features $z[\mathcal I]\leftarrow (1-\alpha)z[\mathcal I]$, decode and add back a small delta.
+\end{frame}
+
+% 14.97 Layer Selection (CKA/Procrustes/ANC)
+\begin{frame}{Layer Selection: CKA/Procrustes/ANC}
+\small
+\textbf{What they are}
+\begin{itemize}
+  \item \textbf{CKA}: similarity of two representation sets; robust to scaling.
+  \item \textbf{Procrustes}: best orthogonal alignment score between spaces.
+  \item \textbf{ANC}: aligned neuron correlation (stability of neuron-wise match).
+\end{itemize}
+\vspace{2mm}
+\textbf{How we combine them} (from code):
+\begin{itemize}
+  \item If \texttt{--use\_anc}: $\text{combo} = 0.4\,\text{CKA} + 0.4\,\text{Proc} + 0.2\,\text{ANC}$
+  \item Else: $\text{combo} = 0.5\,\text{CKA} + 0.4\,\text{Proc} + 0.1\,\text{Cos}$
+\end{itemize}
+Pick top-$k$ mid layers by \textbf{combo} and intervene there.
+\end{frame}
+
+% 14.98 Linear Scrub: H − H P
+\begin{frame}{Linear Scrub: $H' = H - H P$}
+\small
+\textbf{Purpose}: a \emph{control} that removes \emph{script-only} directions.
+\begin{enumerate}
+  \item Learn a script discriminant on hidden states (Devanagari vs Roman) and get weight vectors $W$.
+  \item Build projector $P = W (W^\top W)^{-1} W^\top$ (with a tiny ridge for stability).
+  \item Project out: $H' = H - H P$ (removes those script directions).
+\end{enumerate}
+\textbf{Why a control?} If this wins, we only scrubbed script, not semantics. Our claim needs \textbf{semantic} suppression (checked by ES\textsubscript{semantic}).
+\end{frame}
+
+% 15. Limitations
+% 14.5 Assumptions & Threats to Validity
+\begin{frame}{Assumptions \& Threats to Validity}
+\small
+\textbf{Assumptions}
+\begin{itemize}
+  \item \textbf{Mid layers ≈ semantics.} Often observed; \emph{mitigation}:
+        choose layers via CKA/Procrustes/ANC, not heuristics.
+  \item \textbf{SAE features are steerable/local.} Polysemantic features exist;
+        \emph{mitigation}: Top‑K sparsity, semantic feature picker, small
+        $\alpha$ with \textbf{dose–response} sanity checks.
+  \item \textbf{ES is a good proxy.} Can be fooled by script cues;
+        \emph{mitigation}: \textbf{script‑blind ES} (romanize), ensemble LID,
+        report \textbf{CIs} and confusion checks.
+  \item \textbf{Edits won’t redistribute/leak.} Not guaranteed; \emph{tests}:
+        redistribution probes, cross‑ling ES deltas, and MIA.
+  \item \textbf{Synthetic prompts are representative.} Risk of bias;
+        \emph{mitigation}: add real hold‑out sets (see compute slide guidance).
+  \item \textbf{Unlearning ≠ deletion.} \emph{Probe}: tiny recovery finetune
+        (reversibility harness) to detect obfuscation.
+\end{itemize}
+\end{frame}
+
+% 15. Limitations
+\begin{frame}[shrink=5]{Limitations and Realism}
+
+\textcolor{mOrange}{\textbf{Known Limitations:}}
+
+\begin{itemize}
+  \item \textbf{SAEs:} Can surface polysemantic features (picker mitigates but not perfect)
+
+  \item \textbf{Linear scrub:} Baseline only (semantics often nonlinear)
+
+  \item \textbf{Synthetic prompts:} Tidy by design (add real hold-out)
+\end{itemize}
+
+\vspace{3mm}
+
+\textcolor{mGreen}{\textbf{Mitigation:}} Real-world evaluation + iterative refinement + diverse test sets
+
+\end{frame}
+
+% 16. References
+\begin{frame}{References}
+
+\footnotesize
+
+\textbf{Core Methods:}
+\begin{itemize}
+  \item LoRA (Hu et al., 2021), ReFT (Wu et al., 2024)
+  \item SAEs (Bricken et al., 2023/24)
+  \item INLP (Ravfogel et al., 2020), LEACE (2023), NPO (2024)
+\end{itemize}
+
+\vspace{2mm}
+
+\textbf{Key Insights:}
+\begin{itemize}
+  \item Anthropic: Privileged bases in transformer residual stream
+  \item Hugging Face: Transformers generation/logits processors; PEFT LoRA docs
+\end{itemize}
+
+\vspace{2mm}
+
+\textbf{Additional Resources:}
+See \texttt{images/README.md} for suggested figures
+
+\end{frame}
+
+% 17. Takeaways
+{
+\setbeamercolor{background canvas}{bg=mGreen}
+\setbeamercolor{normal text}{fg=white}
+\usebeamercolor[fg]{normal text}
+
+\begin{frame}{Key Takeaways}
+
+\Large
+
+\begin{enumerate}
+  \item \textbf{Intervene in meaning space, not token space}
+
+  \vspace{5mm}
+
+  \item \textbf{Prove success script-blind} (guard English quality + safety)
+
+  \vspace{5mm}
+
+  \item \textbf{Dose–response + gate table} make the case in one glance
+\end{enumerate}
+
+\vspace{8mm}
+
+\centering
+\Large
+\textbf{Semantic Control}
+
+\end{frame}
+}
+
+% Thank You
+{
+\setbeamercolor{background canvas}{bg=mBlue}
+\setbeamercolor{normal text}{fg=white}
+\usebeamercolor[fg]{normal text}
+
+\begin{frame}[plain]
+
+\vspace{20mm}
+
+\centering
+
+\Huge \textbf{Thank You!}
+
+\vspace{10mm}
+
+\Large Questions?
+
+\vspace{10mm}
+
+\normalsize
+your.email@domain.com
+
+github.com/yourusername
+
+\end{frame}
+}
+
+\end{document}

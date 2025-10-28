@@ -1,0 +1,237 @@
+# The Clarity Prompt for Codex
+
+Copy-paste this to your agent. It's designed to extract the exact information needed to understand what you've actually built and demonstrated:
+
+```bash
+# COMPREHENSIVE CODEBASE ANALYSIS: What Story Does The Evidence Tell?
+
+You are analyzing a research codebase that claims to "suppress Hindi semantics" in LLMs. I need you to determine what the code ACTUALLY demonstrates vs. what it CLAIMS to demonstrate. Be brutally honest about gaps.
+
+## PART 1: The Central Question - Understanding vs Generation
+
+Search the ENTIRE codebase (all .py files, all scripts/, all notebooks/) for ANY evidence that the code tests Hindi COMPREHENSION/UNDERSTANDING, not just generation.
+
+Look for:
+1. Tests where Hindi is in the PROMPT and English is expected in the RESPONSE
+   - Example: "भारत की राजधानी क्या है? Answer in English:" → expects "Delhi"
+   - Search for patterns like: hindi_prompt + "answer in english"
+   - Check build_mmie_datasets.py, build_training_pairs.py, any test/eval files
+
+2. Translation tasks (English→Hindi or Hindi→English)
+   - Example: "Translate to Hindi: Hello" 
+   - Search for: "translate", "translation", patterns with "→" or directional arrows
+
+3. Meta-linguistic questions
+   - Example: "What is the Hindi word for X?"
+   - Search for: "word for", "meaning of", "definition"
+
+4. Cross-lingual reasoning
+   - Example: Hindi question, English answer reasoning
+   - Search for: "cross-lingual", "xlingual reasoning", mixed language reasoning
+
+**CRITICAL OUTPUT:**
+- If ANY of these exist: Show me the exact file, line numbers, and how many such examples exist
+- If NONE exist: Explicitly state "NO COMPREHENSION TESTS FOUND" and explain what this means for the claims
+
+## PART 2: What The Experimental Results Actually Show
+
+Find and report the ACTUAL NUMBERS from completed experiments:
+
+1. Search for output JSON files (*.json in root, outputs/, results/, experiments/)
+   - Look for: eval_*.json, results_*.json, experiment_*.json
+   - For EACH file found, extract and show:
+     * Base model ES (forget set)
+     * Edited model ES (forget set) 
+     * ES reduction percentage
+     * Base model PPL (retain set)
+     * Edited model PPL (retain set)
+     * Which gates passed/failed
+
+2. Check if there's a results/ or experiments/ directory
+   - Show the directory structure
+   - List all result files with timestamps
+   - Identify which represents the "main" result vs ablations
+
+3. Look for any plots or visualizations
+   - Search for: *.png, *.pdf, *.jpg in root and subdirs
+   - Check for: plot*, graph*, figure*, vis*
+   - If found, describe what each visualizes
+
+**CRITICAL OUTPUT:**
+- Actual ES numbers: Base vs Edited (both script-aware and semantic)
+- Actual PPL numbers: Base vs Edited
+- Gate pass/fail summary
+- If NO results exist, state: "NO EXPERIMENTAL RESULTS FOUND - Only code exists"
+
+## PART 3: Data Scale Reality Check
+
+Determine the ACTUAL dataset sizes used:
+
+1. Count examples in each dataset file:
+   ```
+   wc -l forget_hi.jsonl retain_en.jsonl mixed.jsonl 
+   wc -l data/*.jsonl
+   wc -l urdu.jsonl punjabi.jsonl bengali.jsonl
+   ```
+
+2. Check for any data/ or datasets/ directories
+   - Show full structure with file sizes
+   - Count total examples across all files
+
+3. Search code for --sample_cap usage
+   - Find all invocations of mmie.py in scripts/
+   - Show what sample_cap values are actually used
+   - Check README.md for recommended commands
+
+4. Calculate effective training tokens:
+   - sample_cap × max_len = total tokens
+   - Show this calculation for the main experimental run
+
+**CRITICAL OUTPUT:**
+- Total unique forget examples: X
+- Total unique retain examples: Y  
+- Total unique mixed examples: Z
+- Effective training tokens (with calculation shown)
+- Is this 100 samples or more? Be precise.
+
+## PART 4: What Baselines Exist?
+
+Determine what the method is being compared against:
+
+1. Search for baseline comparisons in code:
+   - Random ablation: Search for "random" + "baseline", "shuffle", "permute"
+   - Script blocking: Search for "script_block", "filter_devanagari", "block_script"
+   - No intervention: Just base model (this should exist)
+
+2. Check if multiple arms are run simultaneously:
+   - In mmie.py, does main() run multiple conditions?
+   - Are there flags like --lora_steps 0 vs --lora_steps 1000?
+   - Does it test: no intervention, LoRA only, ReFT only, SAE-gate only, combinations?
+
+3. Look for ablation studies:
+   - Semantic feature picker vs simple forget-retain difference
+   - Different alpha values for gating
+   - Different layer selections
+   - With/without ILU, with/without dynamic gating
+
+**CRITICAL OUTPUT:**
+- List all baselines/conditions tested
+- If only one condition tested: "NO BASELINES - Single condition only"
+- Show which arms are compared in the main experimental script
+
+## PART 5: The Mixed Data Reality
+
+Examine what "mixed.jsonl" actually contains:
+
+1. Show 5 random examples from mixed.jsonl (full prompt and expected response)
+
+2. In build_mmie_datasets.py line 102-111, show the EXACT code that creates mixed data
+
+3. Categorize the mixed data:
+   - Type A: Hindi prompt → Hindi response (code-switched)
+   - Type B: English prompt → Hindi response
+   - Type C: Hindi prompt → English response  
+   - Type D: Concatenated/comparative ("Compare Hindi and English grammar")
+   - Type E: Other (describe)
+
+4. Check if adversarial.jsonl exists and what it contains
+   - Show 3 examples
+   - Are these manually crafted or generated?
+   - Do they include concatenated forget+retain queries?
+
+**CRITICAL OUTPUT:**
+- Mixed data breakdown by type with counts
+- Whether any "Compare X and Y" style queries exist
+- Whether this tests CMU's concatenated query failure mode
+
+## PART 6: The Reversibility Story
+
+Find and interpret reversibility_harness.py results:
+
+1. Show the complete reversibility_harness.py code (it's short)
+
+2. Search for any results from running it:
+   - Look for: reversibility_*.json, recovery_*.json, harness_*.json
+   - Check for any log files mentioning "reversibility" or "recovery"
+
+3. Explain what it measures:
+   - Recovery rate formula
+   - Number of fine-tune steps used
+   - Size of recovery dataset
+
+4. Interpret what easy vs hard recovery means:
+   - If recovery_rate > 0.5: Knowledge was hidden (obfuscation)
+   - If recovery_rate < 0.3: Knowledge was harder to recover (more robust)
+
+**CRITICAL OUTPUT:**
+- Whether reversibility test was actually run
+- If yes, what the recovery rate was
+- Interpretation: Is this obfuscation or genuine forgetting?
+
+## PART 7: The Actual Claim vs Evidence Gap
+
+Now synthesize everything above to answer:
+
+**What does the code CLAIM to do?**
+- Extract this from: README.md abstract, RIGOR.md goals, docstrings in main()
+
+**What does the code ACTUALLY test?**
+- Based on Parts 1-6, what measurements exist?
+
+**What's the evidence gap?**
+- Claims present but not tested
+- Tests present but not interpreted  
+- Missing critical experiments
+
+**CRITICAL OUTPUT - The Story:**
+```
+CLAIMS (from documentation):
+- [List each major claim]
+
+EVIDENCE (from code/results):
+- [What each claim is supported by]
+
+GAPS (missing pieces):
+- [What's claimed but not tested]
+
+VERDICT:
+This codebase demonstrates: [X]
+But does NOT demonstrate: [Y]
+To support claims, needs: [Z]
+```
+
+## PART 8: The Semantic Feature Picker Reality
+
+Analyze whether semantic features are actually being selected:
+
+1. In mmie.py around line 439-471, show the COMPLETE pick_semantic_sae_features function
+
+2. Check if this function is actually CALLED in main():
+   - Search main() for "semantic_features" flag
+   - Show the conditional logic: if args.semantic_features: ...
+   - Is this enabled by default or requires a flag?
+
+3. Show what happens when semantic picker fails:
+   - Line 1187-1211 mentions fallback to forget-retain
+   - Show this fallback code
+   - Does it print a warning? What does it say?
+
+4. Search for any logged output about feature selection:
+   - "selected X semantic features"
+   - "falling back to forget-retain"
+   - Any feature quality metrics
+
+**CRITICAL OUTPUT:**
+- Is semantic feature selection used in the main experimental run?
+- If yes, how many features selected vs total features?
+- If fallback triggered, what does this mean for "semantic" claims?
+
+## FINAL SYNTHESIS: The One-Paragraph Truth
+
+Based on ALL analysis above, write one paragraph that honestly describes what this codebase actually demonstrates:
+
+"This codebase implements [METHOD] and tests whether [SPECIFIC MEASURABLE OUTCOME]. The evidence consists of [CONCRETE MEASUREMENTS]. It successfully demonstrates [WHAT WORKS] but does not test [WHAT'S MISSING]. The claim that [X] is [supported/not supported/partially supported] by [SPECIFIC EVIDENCE/GAP]. To validate the full claims, it would need [SPECIFIC ADDITIONS]."
+
+Be brutally honest. If there are no experimental results, say so. If comprehension is never tested, say so. If it's just 100 samples, say so. If the story is incomplete, explain what's missing.
+```
+

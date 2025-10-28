@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pt
+*.bin
+*.ckpt
+*.log
+*.pickle
+*.pkl
+.DS_Store
+Thumbs.db
+data/
