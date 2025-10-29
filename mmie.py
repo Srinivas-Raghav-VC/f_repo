@@ -1233,7 +1233,7 @@ def mia_loss(base,edited,tok,forget,nonmember,device):
         for batch in chunked(texts,8):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=256).to(device)
             out=m(**enc, labels=enc["input_ids"])
-            L.append(float(out.loss.detach().cpu()))    
+            L.append(float(out.loss.detach().cpu()))
         return np.array(L, dtype=np.float32)
     Lb_f=losses(base,forget); Le_f=losses(edited,forget)
     Lb_n=losses(base,nonmember); Le_n=losses(edited,nonmember)
