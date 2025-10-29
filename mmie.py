@@ -3,6 +3,7 @@
 # Checkpointing: LoRA -> lora_adapters.pt ; ReFT -> reft_adapters.pt ; SAE -> sae_layer{L}.pt
 
 import os, json, argparse, math, random, itertools
+from collections import Counter
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 from pathlib import Path
@@ -1260,6 +1261,10 @@ def parse():
     # Reproducibility / control
     ap.add_argument("--selection_seed", type=int, default=42, help="Fix random seeds for selection (numpy/torch/random)")
     ap.add_argument("--force_layers", nargs="+", type=int, default=None, help="Bypass selection and force specific layer indices (e.g., 10 16 19)")
+    # Stability selection (vote/average over multiple seeds)
+    ap.add_argument("--stability_select", type=int, default=0, help="If >0, run selection multiple times with different seeds and aggregate")
+    ap.add_argument("--stability_seeds", nargs="+", type=int, default=None, help="Explicit list of seeds to use for stability selection")
+    ap.add_argument("--stability_strategy", choices=["vote","average"], default="vote", help="Aggregate by vote (default) or by average combo score")
     ap.add_argument("--max_len",type=int,default=256)
     ap.add_argument("--use_xlmr",action="store_true")
     ap.add_argument("--use_gemini",action="store_true")
@@ -1370,17 +1375,102 @@ def main():
     n_layers=len(base.model.layers)
     probe_layers=[l for l in args.probe_layers if l < n_layers] or list(range(n_layers))
 
-    # Select layers (or force)
+    # Select layers (or force) with optional stability aggregation
     if args.force_layers:
         chosen = sorted({int(l) for l in args.force_layers if 0 <= int(l) < n_layers})[:max(1, int(args.select_top_k))]
         scores = {li: {"combo": None} for li in chosen}
         print(f"[layers] forced: {chosen}  (min_layer={args.min_layer}, top_k={args.select_top_k})")
     else:
-        chosen, scores = select_layers(base, tok, forget, retain, n_layers, device,
-                                       cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
-                                       use_anc=args.use_anc, min_layer=int(args.min_layer),
-                                       select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
-                                       xlang_sets=xlang_sets, max_len=int(args.max_len))
+        # Optional stability selection over multiple seeds
+        if int(args.stability_select) > 0:
+            seeds_list = (args.stability_seeds if args.stability_seeds else [11,23,37,61,89])
+            if len(seeds_list) < int(args.stability_select):
+                # extend deterministically
+                base_seeds = [101,131,151,181,211,241,271,301]
+                seeds_list = seeds_list + base_seeds[:int(args.stability_select)-len(seeds_list)]
+            seeds_list = seeds_list[:int(args.stability_select)]
+
+            vote = Counter()
+            avg_scores: dict[int, float] = {}
+            # Precompute once per run for judge refinement base slice
+            # We reuse the logic below inside the loop per seed
+            for s in seeds_list:
+                # Seed for this selection
+                try:
+                    random.seed(int(s)); np.random.seed(int(s)); torch.manual_seed(int(s));
+                    if torch.cuda.is_available(): torch.cuda.manual_seed_all(int(s))
+                except Exception:
+                    pass
+                sel_chosen, sel_scores = select_layers(base, tok, forget, retain, n_layers, device,
+                                                       cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
+                                                       use_anc=args.use_anc, min_layer=int(args.min_layer),
+                                                       select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
+                                                       xlang_sets=xlang_sets, max_len=int(args.max_len))
+                # Optional judge refinement per seed
+                if args.judge_assist_selection:
+                    try:
+                        pool_k = max(len(sel_chosen), int(args.judge_pool))
+                        ranked = sorted(sel_scores.items(), key=lambda kv: kv[1]["combo"], reverse=True)[:pool_k]
+                        candidates = [li for li,_ in ranked]
+                        cap_hi = max(4, min(len(forget), int(args.judge_cap)//2))
+                        cap_en = max(4, min(len(retain), int(args.judge_cap) - cap_hi))
+                        base_hi_out = generate(base, tok, forget[:cap_hi], device)
+                        base_en_out = generate(base, tok, retain[:cap_en], device)
+                        base_j_hi = _judge_avg_score(base_hi_out, target_lang="Hindi", model_name=args.judge_model, timeout=args.judge_timeout) or 0.0
+                        base_j_en = _judge_avg_score(base_en_out, target_lang="Hindi", model_name=args.judge_model, timeout=args.judge_timeout) or 0.0
+                        deltas = _refine_layers_with_judge(base, tok, device, forget, retain, candidates,
+                                                           base_hi_out, base_en_out, base_j_hi, base_j_en,
+                                                           args.judge_scale, args.judge_beta, args.judge_model, args.judge_timeout)
+                        # Blend
+                        met = np.array([sel_scores[li]["combo"] for li in candidates], dtype=np.float32)
+                        if np.max(met) > np.min(met):
+                            met = (met - np.min(met)) / (np.max(met) - np.min(met))
+                        else:
+                            met = np.zeros_like(met)
+                        jd = np.array([max(0.0, deltas.get(li, 0.0)) for li in candidates], dtype=np.float32)
+                        if np.max(jd) > 0:
+                            jd = jd / (np.max(jd) + 1e-9)
+                        blend = (args.judge_alpha * met + (1.0 - args.judge_alpha) * jd)
+                        new_rank = [li for _, li in sorted(zip(blend, candidates), key=lambda p: p[0], reverse=True)]
+                        sel_chosen = new_rank[:max(1, int(args.select_top_k))]
+                    except Exception:
+                        pass
+                # Aggregate
+                if args.stability_strategy == "vote":
+                    for li in sel_chosen:
+                        vote[li] += 1
+                else:
+                    # average combo across runs; for missing layers, initialize
+                    for li, sc in sel_scores.items():
+                        avg_scores[li] = avg_scores.get(li, 0.0) + float(sc.get("combo", 0.0))
+            if args.stability_strategy == "vote":
+                top = [li for li,_ in vote.most_common(max(1,int(args.select_top_k)))]
+                chosen = top
+                scores = {li: {"combo": None} for li in chosen}
+                print(f"[layers] stability vote: {dict(vote)} -> chosen {chosen}")
+            else:
+                if avg_scores:
+                    for k in list(avg_scores.keys()):
+                        avg_scores[k] /= float(len(seeds_list))
+                    top = [li for li,_ in sorted(avg_scores.items(), key=lambda kv: kv[1], reverse=True)[:max(1,int(args.select_top_k))]]
+                else:
+                    top = sel_chosen
+                chosen = top
+                scores = {li: {"combo": avg_scores.get(li)} for li in chosen}
+                print(f"[layers] stability average: chosen {chosen}")
+            # Reseed to the user-provided default for downstream steps
+            if args.selection_seed is not None:
+                try:
+                    random.seed(int(args.selection_seed)); np.random.seed(int(args.selection_seed)); torch.manual_seed(int(args.selection_seed));
+                    if torch.cuda.is_available(): torch.cuda.manual_seed_all(int(args.selection_seed))
+                except Exception:
+                    pass
+        else:
+            chosen, scores = select_layers(base, tok, forget, retain, n_layers, device,
+                                           cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
+                                           use_anc=args.use_anc, min_layer=int(args.min_layer),
+                                           select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
+                                           xlang_sets=xlang_sets, max_len=int(args.max_len))
     if len(chosen) < int(args.select_top_k):
         print(f"[layers] warning: requested top_k={args.select_top_k} but only selected {len(chosen)} layers (min_layer={args.min_layer}, n_layers={n_layers}).")
     if args.print_layer_scores:
