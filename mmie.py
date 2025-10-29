@@ -1247,7 +1247,7 @@ def parse():
     ap.add_argument("--judge_model", type=str, default="gemini-2.5-flash", help="LLM judge model name")
     ap.add_argument("--judge_timeout", type=float, default=15.0, help="Timeout per judge call in seconds (fallback to metrics if exceeded)")
     # Reproducibility / control
-    ap.add_argument("--selection_seed", type=int, default=None, help="Fix random seeds for selection (numpy/torch/random)")
+    ap.add_argument("--selection_seed", type=int, default=42, help="Fix random seeds for selection (numpy/torch/random)")
     ap.add_argument("--force_layers", nargs="+", type=int, default=None, help="Bypass selection and force specific layer indices (e.g., 10 16 19)")
     ap.add_argument("--max_len",type=int,default=256)
     ap.add_argument("--use_xlmr",action="store_true")
