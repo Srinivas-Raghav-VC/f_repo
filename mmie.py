@@ -306,12 +306,16 @@ def collect_layer_means(model,tok,texts,layers,device,max_len=256,cap=1000,per_t
 def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: bool = False, min_layer: int = 0,
                   select_mode: str = 'contrast', script_blind_selection: bool = True,
                   xlang_sets: Optional[List[Tuple[str, List[str]]]] = None,
-                  max_len: int = 256):
+                  max_len: int = 256, verbose: bool = False):
     layers=[li for li in range(n_layers) if li >= max(0, int(min_layer))]
+    if verbose:
+        print(f"[select] eligible layers (min_layer={min_layer}): {layers}")
     # Optionally make selection script-blind by romanizing Devanagari prompts
     hi_sel = _romanize_texts(hi) if script_blind_selection else hi
     A=collect_layer_means(model,tok,hi_sel,layers,device,max_len=max_len,cap=cap,per_token=True,tokens_per_seq=16)
     B=collect_layer_means(model,tok,en,layers,device,max_len=max_len,cap=cap,per_token=True,tokens_per_seq=16)
+    if verbose:
+        print(f"[select] collected token means for {len(layers)} layers (cap={cap}, max_len={max_len})")
     # Precompute semantic probe AUCs once (batched across layers)
     semantic_aucs_main: Dict[int, Dict[str, float]] = {}
     semantic_neigh_maps: List[Dict[int, Dict[str, float]]] = []
@@ -319,6 +323,9 @@ def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: boo
         probe_cap = int(min(cap, 80))
         try:
             semantic_aucs_main = probes_auc(model, tok, hi_sel[:probe_cap], en[:probe_cap], layers, device, max_len=max_len)
+            if verbose and semantic_aucs_main:
+                top = sorted([(li, v.get('auc',0.5)) for li,v in semantic_aucs_main.items()], key=lambda x: x[1], reverse=True)[:5]
+                print(f"[select] semantic AUC(HI vs EN) top-5: {top}")
         except Exception:
             semantic_aucs_main = {}
         if xlang_sets:
@@ -327,6 +334,8 @@ def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: boo
                     semantic_neigh_maps.append(probes_auc(model, tok, xt[:probe_cap], en[:probe_cap], layers, device, max_len=max_len))
                 except Exception:
                     semantic_neigh_maps.append({})
+        if verbose and semantic_neigh_maps:
+            print(f"[select] computed neighbor AUC maps: {len(semantic_neigh_maps)}")
     scores={}
     for li in layers:
         X=A[li]; Y=B[li]
@@ -363,6 +372,9 @@ def select_layers(model,tok,hi,en,n_layers,device,cap=2000,top_k=3, use_anc: boo
         scores[li] = {"cka":cka,"proc":proc,"cos":cos, "anc":anc if n>=100 else 0.0, "combo":combo}
     # For similarity we take max(combo); for contrast we also take max(combo) since it's already inverted
     chosen=sorted(scores,key=lambda l:scores[l]["combo"],reverse=True)[:min(len(layers), top_k)]
+    if verbose:
+        top = sorted(scores.items(), key=lambda kv: kv[1]["combo"], reverse=True)[:top_k]
+        print(f"[select] top-{top_k} by combo: {[li for li,_ in top]}")
     return chosen,scores
 
 # -------------------- SAE (compact TopK) --------------------
@@ -1296,6 +1308,8 @@ def parse():
     # Semantic picker score cutoff
     ap.add_argument("--semantic_tau", type=float, default=0.0, help="Minimum score threshold for semantic SAE feature selection")
     ap.add_argument("--ckpt_dir", type=str, default=".", help="Directory to read/write adapters and SAE weights")
+    # Verbose logging
+    ap.add_argument("--log_verbose", action="store_true", default=True, help="Print verbose stage logs")
     return Args(**vars(ap.parse_args()))
 
 # Utility: save activations for sets (added)
@@ -1383,7 +1397,7 @@ def main():
         scores = {li: {"combo": None} for li in chosen}
         print(f"[layers] forced: {chosen}  (min_layer={args.min_layer}, top_k={args.select_top_k})")
     else:
-        # Optional stability selection over multiple seeds
+    # Optional stability selection over multiple seeds
         if int(args.stability_select) > 0:
             seeds_list = (args.stability_seeds if args.stability_seeds else [11,23,37,61,89])
             if len(seeds_list) < int(args.stability_select):
@@ -1407,7 +1421,9 @@ def main():
                                                        cap=args.sample_cap, top_k=max(1,int(args.select_top_k)),
                                                        use_anc=args.use_anc, min_layer=int(args.min_layer),
                                                        select_mode=args.select_mode, script_blind_selection=args.script_blind_selection,
-                                                       xlang_sets=xlang_sets, max_len=int(args.max_len))
+                                                       xlang_sets=xlang_sets, max_len=int(args.max_len), verbose=args.log_verbose)
+                if args.log_verbose:
+                    print(f"[stability] seed {s}: pre-judge chosen {sel_chosen}")
                 # Optional judge refinement per seed
                 if args.judge_assist_selection:
                     try:
@@ -1435,6 +1451,9 @@ def main():
                         blend = (args.judge_alpha * met + (1.0 - args.judge_alpha) * jd)
                         new_rank = [li for _, li in sorted(zip(blend, candidates), key=lambda p: p[0], reverse=True)]
                         sel_chosen = new_rank[:max(1, int(args.select_top_k))]
+                        if args.log_verbose:
+                            top_d = sorted(deltas.items(), key=lambda kv: kv[1], reverse=True)[:5]
+                            print(f"[stability] seed {s}: judge deltas top-5 {top_d}; refined {sel_chosen}")
                     except Exception:
                         pass
                 # Aggregate
@@ -1475,7 +1494,7 @@ def main():
                                            xlang_sets=xlang_sets, max_len=int(args.max_len))
     if len(chosen) < int(args.select_top_k):
         print(f"[layers] warning: requested top_k={args.select_top_k} but only selected {len(chosen)} layers (min_layer={args.min_layer}, n_layers={n_layers}).")
-    if args.print_layer_scores:
+    if args.print_layer_scores and int(args.stability_select) == 0:
         try:
             print(f"[layers] ranking (top 10 by combo) — mode={args.select_mode}, script_blind={args.script_blind_selection}:")
             rank = sorted(scores.items(), key=lambda kv: kv[1]["combo"], reverse=True)[:10]
@@ -1485,8 +1504,8 @@ def main():
         except Exception as e:
             print(f"[layers] print failed: {e}")
 
-    # Optional: refine with LLM judge on a small candidate pool
-    if args.judge_assist_selection:
+    # Optional: refine with LLM judge on a small candidate pool (skip if stability selection already aggregated)
+    if args.judge_assist_selection and int(args.stability_select) == 0:
         try:
             pool_k = max(len(chosen), int(args.judge_pool))
             ranked = sorted(scores.items(), key=lambda kv: kv[1]["combo"], reverse=True)[:pool_k]
