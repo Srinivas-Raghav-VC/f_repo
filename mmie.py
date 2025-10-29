@@ -1232,6 +1232,8 @@ class Args:
     selection_seed: Optional[int]; force_layers: Optional[List[int]]
     # Stability selection aggregation
     stability_select: int; stability_seeds: Optional[List[int]]; stability_strategy: str
+    # Verbose logging
+    log_verbose: bool
     # New: SAE quality proxies
     sae_quality_eval: bool; sae_eval_cap: int
     # New: thresholds and semantic picker tau
