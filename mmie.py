@@ -1872,6 +1872,14 @@ def main():
                 es_mixed_sem = extraction_strength(rom_m, lid, target_code="hi", use_script_guard=False)
             except Exception:
                 pass
+            # Adversarial robustness test
+            es_adversarial = None
+            if adversarial:
+                try:
+                    gens_adv = generate(model, tok, adversarial[:200], device)
+                    es_adversarial = extraction_strength(gens_adv, lid, target_code="hi", use_script_guard=True)
+                except Exception:
+                    pass
             others=[l for l in probe_layers if l not in chosen] or probe_layers
             probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
             mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
