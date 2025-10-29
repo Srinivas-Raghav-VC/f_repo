@@ -131,11 +131,37 @@ def _to_model_device(model, enc):
     return enc.to(dev) if hasattr(enc, 'to') else enc
 
 # -------------------- model block resolver --------------------
+def _unwrap_peft(model):
+    """Return underlying base model if this is a PEFT-wrapped model."""
+    try:
+        from peft import PeftModel
+    except Exception:
+        PeftModel = None
+    if PeftModel is not None and isinstance(model, PeftModel):
+        # Preferred API
+        try:
+            base = model.get_base_model()
+            if base is not None:
+                return base
+        except Exception:
+            pass
+        # Fallbacks used by some PEFT versions
+        for attr in ("base_model", "model"):
+            try:
+                base = getattr(model, attr)
+                if base is not None:
+                    return base
+            except Exception:
+                continue
+    return model
+
 def _resolve_blocks(model):
     """Best-effort resolver for the list of transformer block modules across model families.
     Tries common attribute paths and returns a ModuleList/list/tuple of blocks.
     Raises a descriptive error if not found.
     """
+    # Unwrap PEFT wrappers if present
+    model = _unwrap_peft(model)
     candidates = [
         "model.layers",            # Llama / Qwen2 style
         "model.h",                 # some GPT variants
@@ -448,6 +474,9 @@ class SAEGate:
         self.sae = sae_per_layer
         self.feature_idx = {li: torch.tensor(idx, dtype=torch.long) for li, idx in feature_idx.items()}
         self.alpha = float(alpha)
+        # Optional per-sequence alpha overrides for batched generation
+        # Mapping: batch_index -> alpha in [0,1]
+        self._per_seq_alpha: Dict[int, float] = {}
         self.handles = []
         self._attach()
 
@@ -468,14 +497,27 @@ class SAEGate:
                     B,T,D = h.shape
                     # Ensure SAE and index tensor are on the same device as this layer's output
                     if sae_module.E.weight.device != h.device:
-                        sae_module.to(device=h.device)
+                        # Move and keep reference consistent for subsequent calls
+                        sae_module = sae_module.to(device=h.device)
+                        self.sae[i] = sae_module
                     idx_local = idx_tensor.to(h.device) if idx_tensor.device != h.device else idx_tensor
                     x = h.reshape(-1, D).to(torch.float32)
                     z0 = sae_module.E(x)  # [B*T, m]
                     x0 = sae_module.D(z0)  # baseline recon
                     z_edit = z0.clone()
                     if idx_local.numel()>0:
-                        z_edit[:, idx_local] *= (1.0 - self.alpha)
+                        # Apply either global alpha or per-sequence alpha if provided
+                        if self._per_seq_alpha:
+                            # Build [B] alpha vector then expand to [B*T]
+                            alpha_vec = torch.full((B,), float(self.alpha), device=h.device, dtype=torch.float32)
+                            for bi, aval in self._per_seq_alpha.items():
+                                if 0 <= int(bi) < B:
+                                    alpha_vec[int(bi)] = float(max(0.0, min(1.0, aval)))
+                            alpha_bt = alpha_vec.repeat_interleave(T)  # [B*T]
+                            scale = (1.0 - alpha_bt).unsqueeze(1)      # [B*T,1]
+                            z_edit[:, idx_local] = z_edit[:, idx_local] * scale
+                        else:
+                            z_edit[:, idx_local] *= (1.0 - self.alpha)
                     xhat = sae_module.D(z_edit)
                     delta = (xhat - x0).to(h.dtype)
                     h2 = (h + delta.reshape(B, T, D))
@@ -492,6 +534,14 @@ class SAEGate:
 
     def set_alpha(self, alpha: float):
         self.alpha = float(max(0.0, min(1.0, alpha)))
+
+    def set_per_sequence_alphas(self, mapping: Dict[int, float]):
+        # Set per-sequence alphas for the next forward pass; values are clamped to [0,1]
+        try:
+            self._per_seq_alpha = {int(k): float(max(0.0, min(1.0, v))) for k, v in (mapping or {}).items()}
+        except Exception:
+            # On malformed input, fallback to empty mapping (use global alpha)
+            self._per_seq_alpha = {}
 
 class LinearProjectHook:
     """Project hidden states onto the nullspace of a learned subspace W per selected layer.
@@ -765,13 +815,28 @@ def attach_reft(model,layers,device,rank=4):
         handles.append(h)
     return adapters, handles
 
+def _infer_reft_rank_from_state(state_dict: dict) -> int | None:
+    """Infer ReFT rank from a saved adapters state dict (uses *.A.weight shape)."""
+    try:
+        for k, v in state_dict.items():
+            if k.endswith('.A.weight') and hasattr(v, 'shape') and len(tuple(v.shape)) == 2:
+                return int(v.shape[0])
+    except Exception:
+        pass
+    return None
+
 def apply_reft_from_file(model, layers, path, rank=4):
-    adapters, handles = attach_reft(model, layers, device=next(model.parameters()).device, rank=rank)
+    dev = next(model.parameters()).device
     if os.path.exists(path):
-        sd = torch.load(path, map_location=next(model.parameters()).device)
+        sd = torch.load(path, map_location=dev)
+        use_rank = _infer_reft_rank_from_state(sd) or rank
+        if use_rank != rank:
+            print(f"[reft] inferred rank={use_rank} from {os.path.basename(path)} (overriding rank={rank})")
+        adapters, handles = attach_reft(model, layers, device=dev, rank=use_rank)
         adapters.load_state_dict(sd, strict=False)
         print(f"[reft] loaded {path}")
     else:
+        adapters, handles = attach_reft(model, layers, device=dev, rank=rank)
         print(f"[reft] no adapter file {path}, running base model for ReFT arm.")
     return adapters, handles
 
@@ -921,14 +986,15 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
 def resume_lora(model, tok, device, ckpt_dir: str = "."):
     try:
         from peft import LoraConfig, get_peft_model
-        cfg=LoraConfig(r=4,lora_alpha=16,lora_dropout=0.0,target_modules=["q_proj","v_proj"],task_type="CAUSAL_LM")
-        model=get_peft_model(model,cfg)
         path = os.path.join(ckpt_dir, "lora_adapters.pt")
         if os.path.exists(path):
+            cfg=LoraConfig(r=4,lora_alpha=16,lora_dropout=0.0,target_modules=["q_proj","v_proj"],task_type="CAUSAL_LM")
+            model=get_peft_model(model,cfg)
             sd=torch.load(path, map_location=device)
             model.load_state_dict(sd, strict=False)
             print(f"[lora] loaded {path}")
         else:
+            # Do NOT wrap with PEFT if no adapters found; keep base model to avoid hook resolution issues
             print(f"[lora] no adapter file at {path}, using base weights")
     except Exception as e:
         print(f"[lora] resume skipped: {e}")
@@ -1021,11 +1087,11 @@ class DynamicGatingLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # Per sequence: decode generated continuation and check LID risk
         B = input_ids.shape[0]
+        per_seq_alpha: Dict[int, float] = {}
         for b in range(B):
             gen_ids = input_ids[b, self.prompt_len:]
             if gen_ids.numel() == 0:
-                if self.gate is not None:
-                    self.gate.set_alpha(self.base_alpha)
+                per_seq_alpha[b] = self.base_alpha
                 continue
             try:
                 text = self.tok.decode(gen_ids, skip_special_tokens=True)
@@ -1033,11 +1099,17 @@ class DynamicGatingLogitsProcessor(LogitsProcessor):
                 text = ""
             code,_ = self.lid.infer(text)
             risky = (code == self.target_code)
-            if self.gate is not None:
-                self.gate.set_alpha(self.high_alpha if risky else self.base_alpha)
+            per_seq_alpha[b] = (self.high_alpha if risky else self.base_alpha)
             if risky:
                 # apply penalty to risky ids for this sequence
                 scores[b, list(self.risky_ids)] -= self.penalty
+        if self.gate is not None:
+            # Set per-sequence alpha mapping so the next forward pass uses correct alphas per batch item
+            try:
+                self.gate.set_per_sequence_alphas(per_seq_alpha)
+            except Exception:
+                # Fallback to a conservative global alpha if mapping fails
+                self.gate.set_alpha(self.base_alpha)
         return scores
 
 def generate_with_dynamic_gating(model, tok, lid: LIDEnsemble, prompts, device, gate: SAEGate, base_alpha: float=0.3, high_alpha: float=0.7, max_new_tokens=64):
@@ -1075,11 +1147,11 @@ class SemanticGatingLogitsProcessor(LogitsProcessor):
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         B = input_ids.shape[0]
+        per_seq_alpha: Dict[int, float] = {}
         for b in range(B):
             gen_ids = input_ids[b, self.prompt_len:]
             if gen_ids.numel() == 0:
-                if self.gate is not None:
-                    self.gate.set_alpha(self.base_alpha)
+                per_seq_alpha[b] = self.base_alpha
                 continue
             try:
                 text = self.tok.decode(gen_ids, skip_special_tokens=True)
@@ -1093,8 +1165,12 @@ class SemanticGatingLogitsProcessor(LogitsProcessor):
                     pass
             code,_ = self.lid.infer(text)
             risky = (code == self.target_code)
-            if self.gate is not None:
-                self.gate.set_alpha(self.high_alpha if risky else self.base_alpha)
+            per_seq_alpha[b] = (self.high_alpha if risky else self.base_alpha)
+        if self.gate is not None:
+            try:
+                self.gate.set_per_sequence_alphas(per_seq_alpha)
+            except Exception:
+                self.gate.set_alpha(self.base_alpha)
         return scores
 
 def generate_with_semantic_gating(model, tok, lid: LIDEnsemble, prompts, device, gate: SAEGate, base_alpha: float=0.3, high_alpha: float=0.7, max_new_tokens=64):
@@ -1233,7 +1309,7 @@ def mia_loss(base,edited,tok,forget,nonmember,device):
         for batch in chunked(texts,8):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=256).to(device)
             out=m(**enc, labels=enc["input_ids"])
-            L.append(float(out.loss.detach().cpu()))    
+            L.append(float(out.loss.detach().cpu()))
         return np.array(L, dtype=np.float32)
     Lb_f=losses(base,forget); Le_f=losses(edited,forget)
     Lb_n=losses(base,nonmember); Le_n=losses(edited,nonmember)
@@ -1796,6 +1872,14 @@ def main():
                 es_mixed_sem = extraction_strength(rom_m, lid, target_code="hi", use_script_guard=False)
             except Exception:
                 pass
+            # Adversarial robustness test
+            es_adversarial = None
+            if adversarial:
+                try:
+                    gens_adv = generate(model, tok, adversarial[:200], device)
+                    es_adversarial = extraction_strength(gens_adv, lid, target_code="hi", use_script_guard=True)
+                except Exception:
+                    pass
             others=[l for l in probe_layers if l not in chosen] or probe_layers
             probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
             mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
