@@ -130,6 +130,42 @@ def _to_model_device(model, enc):
         return {k: (v.to(dev) if hasattr(v, 'to') else v) for k,v in enc.items()}
     return enc.to(dev) if hasattr(enc, 'to') else enc
 
+# -------------------- model block resolver --------------------
+def _resolve_blocks(model):
+    """Best-effort resolver for the list of transformer block modules across model families.
+    Tries common attribute paths and returns a ModuleList/list/tuple of blocks.
+    Raises a descriptive error if not found.
+    """
+    candidates = [
+        "model.layers",            # Llama / Qwen2 style
+        "model.h",                 # some GPT variants
+        "model.transformer.h",     # Falcon-style nesting
+        "transformer.h",           # GPT-NeoX / Qwen1.x style
+        "gpt_neox.layers",         # GPT-NeoX alternative
+        "model.decoder.layers",    # some encoder-decoder decoders
+        "layers",                  # rare direct exposure
+    ]
+    for path in candidates:
+        obj = model
+        ok = True
+        for attr in path.split('.'):
+            if not hasattr(obj, attr):
+                ok = False; break
+            obj = getattr(obj, attr)
+        if ok and isinstance(obj, (nn.ModuleList, list, tuple)) and len(obj) > 0:
+            return obj
+    # As a last resort, scan one level for a child with .layers
+    for name in dir(model):
+        try:
+            child = getattr(model, name)
+        except Exception:
+            continue
+        if isinstance(child, nn.Module) and hasattr(child, 'layers'):
+            lst = getattr(child, 'layers')
+            if isinstance(lst, (nn.ModuleList, list, tuple)) and len(lst) > 0:
+                return lst
+    raise AttributeError(f"Could not resolve transformer blocks on {model.__class__.__name__}")
+
 # -------------------- cross-lingual selection --------------------
 
 def center(K):
@@ -416,7 +452,7 @@ class SAEGate:
         self._attach()
 
     def _attach(self):
-        tblocks=self.model.model.layers
+        tblocks=_resolve_blocks(self.model)
         ref = next(self.model.parameters())
         pdev, pdtype = ref.device, ref.dtype
         for li in self.layer_ids:
@@ -480,7 +516,7 @@ class LinearProjectHook:
         self._attach()
 
     def _attach(self):
-        tblocks=self.model.model.layers
+        tblocks=_resolve_blocks(self.model)
         for li in self.layer_ids:
             if li not in self.P: continue
             P = self.P[li]
@@ -513,7 +549,7 @@ class ResidualScaleHook:
         self.handles = []
         self._attach()
     def _attach(self):
-        tblocks = self.model.model.layers
+        tblocks = _resolve_blocks(self.model)
         s = self.scale
         for li in self.layer_ids:
             def make_hook():
@@ -708,7 +744,7 @@ def attach_reft(model,layers,device,rank=4):
     adapters=nn.ModuleDict(); handles=[]
     ref = next(model.parameters())
     pdtype, pdev = ref.dtype, ref.device
-    tblocks=model.model.layers
+    tblocks=_resolve_blocks(model)
     for li in layers:
         adapters[str(li)] = ReFTAdapter(model.config.hidden_size,rank=rank,dtype=pdtype,device=pdev)
         def make_hook(i:int):
@@ -1390,7 +1426,12 @@ def main():
 
     base=load_causal_lm(args.model, tok, device, hf_token, eval_mode=True)
     [p.requires_grad_(False) for p in base.parameters()]
-    n_layers=len(base.model.layers)
+    try:
+        n_layers = len(_resolve_blocks(base))
+    except Exception as e:
+        # Fallback: try common attribute to avoid crash, but report
+        print(f"[warn] cannot resolve blocks on base: {e}")
+        n_layers = getattr(getattr(base, 'model', None), 'num_hidden_layers', None) or 0
     probe_layers=[l for l in args.probe_layers if l < n_layers] or list(range(n_layers))
 
     # Select layers (or force) with optional stability aggregation
