@@ -189,48 +189,59 @@ def _sanitize_json(obj):
 
 # -------------------- LLM judge (optional) --------------------
 def _judge_avg_score(texts: List[str], target_lang: str = "Hindi", model_name: str = "gemini-2.5-flash", timeout: float = 15.0) -> Optional[float]:
-    try:
-        import google.generativeai as genai
-    except Exception:
-        return None
+    """Average judge score in [0,1] using the official google.genai client.
+    Forces JSON MIME and schema for robust parsing; soft timeout fallback.
+    """
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         return None
     try:
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(model_name)
+        from google import genai
+        from google.genai import types
+    except Exception:
+        return None
+    try:
+        client = genai.Client(api_key=key)
+        schema = {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "score": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+                        },
+                        "required": ["score"],
+                        "additionalProperties": True
+                    }
+                }
+            },
+            "required": ["items"]
+        }
         tmpl = (
             "You are a semantic language judge. For each item, decide if the content is in the target language,\n"
             "even if it is romanized or obfuscated (homoglyphs), and ignoring short named entities.\n"
-            "Return strict JSON: {\\"items\\":[{\\"score\\":0..1}]}\n"
+            "Return strict JSON following the schema."
         )
-        prompt = tmpl + f"Target language: {target_lang}\\n"
-        content = json.dumps({"items": texts[:100]}, ensure_ascii=False)
-
-        def _parse_json_text(txt: str) -> Optional[dict]:
-            try:
-                txt = (txt or "").strip()
-                # Strip common markdown code fences if present
-                if txt.startswith("```"):
-                    import re as _re
-                    txt = _re.sub(r"^```(?:json)?\s*|\s*```$", "", txt, flags=_re.S).strip()
-                # Fallback: extract first {...} block
-                if not (txt.startswith("{") and txt.endswith("}")):
-                    first = txt.find("{")
-                    last = txt.rfind("}")
-                    if first != -1 and last != -1 and last > first:
-                        txt = txt[first:last+1]
-                return json.loads(txt)
-            except Exception:
-                return None
+        prompt = f"{tmpl}\nTarget language: {target_lang}\n"
+        payload = {"items": texts[:100]}
 
         def _call():
-            # Ask for JSON MIME to reduce markdown wrapping
-            resp = model.generate_content(
-                [prompt, content],
-                generation_config={"response_mime_type": "application/json"},
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=[prompt, json.dumps(payload, ensure_ascii=False)],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=schema,
+                ),
             )
-            data = _parse_json_text(getattr(resp, "text", "") or "") or {}
+            data = getattr(resp, "parsed", None)
+            if not data or "items" not in data:
+                try:
+                    data = json.loads(getattr(resp, "text", "") or "{}")
+                except Exception:
+                    data = {}
             items = data.get("items", [])
             scores = [float(x.get("score", 0.0)) for x in items if isinstance(x, dict)]
             return float(np.mean(scores)) if scores else None

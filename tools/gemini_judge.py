@@ -1,47 +1,79 @@
 #!/usr/bin/env python3
-# moved to tools/ (repo reorg 2025-10)
 """
-LLM-as-a-judge for semantic language detection.
-Given generated texts, ask Gemini 2.5 Flash to score whether the text expresses
-the target language semantically (even if romanized or obfuscated).
-
-Output: JSON with per-text scores and an average.
-Requires: GEMINI_API_KEY and google-generativeai>=0.8
+LLM-as-a-judge for semantic language detection using the official google.genai client.
+Given texts, ask a Gemini model to score whether each text expresses the target language
+semantically (even if romanized). Saves JSON with per-text scores and average.
+Requires: GEMINI_API_KEY and google-genai>=1.33.0
 """
 import os, json, argparse
 from typing import List
 from dotenv import load_dotenv
 
+from google import genai
+from google.genai import types
 
 TEMPLATE = (
     "You are a semantic language judge. For each item, decide if the content is in the target language,\n"
     "even if it is romanized or obfuscated (homoglyphs), and ignoring short named entities.\n"
-    "Return strict JSON: {\"items\":[{\"text\":...,\"score\":0..1,\"rationale\":...}, ...]}\n"
+    'Return strict JSON following the schema.'
 )
 
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "rationale": {"type": "string"}
+                },
+                "required": ["score"],
+                "additionalProperties": True
+            }
+        }
+    },
+    "required": ["items"]
+}
 
-def judge_texts(model, target_lang: str, texts: List[str], batch: int = 50) -> List[dict]:
-    out = []
-    prompt = TEMPLATE + f"Target language: {target_lang}\n"
+
+def judge_texts(client: genai.Client, model_name: str, target_lang: str, texts: List[str], batch: int = 50) -> List[dict]:
+    out: List[dict] = []
+    prompt = f"{TEMPLATE}\nTarget language: {target_lang}\n"
     for i in range(0, len(texts), batch):
         sub = texts[i : i + batch]
         content = json.dumps({"items": sub}, ensure_ascii=False)
-        resp = model.generate_content([prompt, content])
-        try:
-            data = json.loads(resp.text or "{}")
-            items = data.get("items", [])
-            for itm in items:
-                if "text" in itm and "score" in itm:
-                    out.append({"text": itm["text"], "score": float(itm["score"]), "rationale": itm.get("rationale", "")})
-        except Exception:
-            continue
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=[prompt, content],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=SCHEMA,
+            ),
+        )
+        data = getattr(resp, "parsed", None)
+        if not data:
+            try:
+                data = json.loads(resp.text or "{}")
+            except Exception:
+                data = {}
+        items = data.get("items", [])
+        for itm in items:
+            try:
+                out.append({
+                    "text": itm.get("text", ""),
+                    "score": float(itm.get("score", 0.0)),
+                    "rationale": itm.get("rationale", "")
+                })
+            except Exception:
+                continue
     return out
 
 
 def main():
     load_dotenv()
-    import google.generativeai as genai
-
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="gemini-2.5-flash")
     ap.add_argument("--target_lang", default="Hindi")
@@ -52,11 +84,10 @@ def main():
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    genai.configure(api_key=key)
-    model = genai.GenerativeModel(args.model)
+    client = genai.Client(api_key=key)
 
     # load texts
-    texts = []
+    texts: List[str] = []
     if args.texts.endswith(".jsonl"):
         with open(args.texts, "r", encoding="utf-8") as f:
             for ln in f:
@@ -71,8 +102,8 @@ def main():
             data = json.load(f)
         texts = [str(x) for x in data.get("items", [])]
 
-    items = judge_texts(model, args.target_lang, texts)
-    avg = sum(x["score"] for x in items) / max(1, len(items))
+    items = judge_texts(client, args.model, args.target_lang, texts)
+    avg = sum(x.get("score", 0.0) for x in items) / max(1, len(items))
     payload = {"avg_score": avg, "items": items}
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
