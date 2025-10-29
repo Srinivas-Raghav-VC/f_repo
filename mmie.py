@@ -1218,6 +1218,8 @@ class Args:
     judge_assist_selection: bool; judge_cap: int; judge_pool: int; judge_scale: float; judge_alpha: float; judge_beta: float; judge_model: str; judge_timeout: float
     # Reproducibility / control
     selection_seed: Optional[int]; force_layers: Optional[List[int]]
+    # Stability selection aggregation
+    stability_select: int; stability_seeds: Optional[List[int]]; stability_strategy: str
     # New: SAE quality proxies
     sae_quality_eval: bool; sae_eval_cap: int
     # New: thresholds and semantic picker tau
