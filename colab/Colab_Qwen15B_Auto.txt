@@ -1,0 +1,36 @@
+!nvidia-smi || true
+
+# Fresh clone
+%cd /content
+!rm -rf f_repo
+!git clone --depth=1 https://github.com/Srinivas-Raghav-VC/f_repo f_repo
+%cd /content/f_repo
+
+!python -V
+!pip -q install -U pip
+!pip -q install -r requirements.txt accelerate safetensors matplotlib langid
+
+# Env knobs
+%env TORCH_ALLOW_TF32=1
+%env HF_HUB_ENABLE_HF_TRANSFER=1
+%env SAFETENSORS_FAST=0
+
+# Optional: set your tokens
+# %env HF_TOKEN=YOUR_HF_TOKEN
+# %env GEMINI_API_KEY=YOUR_GEMINI_KEY
+
+# Quick dataset check (files should be under data/ in this repo)
+!python scripts/check_datasets.py --paths \
+  data/forget_hi.jsonl data/retain_en.jsonl data/mixed.jsonl \
+  data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl
+
+# Auto pipeline (research‑grade). Creates timestamped folder under auto_runs/
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --auto --auto_plots --device cuda
+
+# Show location of outputs
+!ls -la auto_runs | tail -n 5 || true
+

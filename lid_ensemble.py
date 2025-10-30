@@ -1,6 +1,7 @@
 # lid_ensemble.py — Windows-friendly LID without native deps
 from dataclasses import dataclass
 from typing import Tuple
+from collections import OrderedDict
 import re
 import unicodedata
 import langid  # pure python
@@ -49,6 +50,9 @@ class LIDEnsemble:
                 self._ft_model = fasttext.load_model(self.cfg.fasttext_bin)
             except Exception:
                 self._ft_model = None
+        # small LRU cache for repeated texts
+        self._cache = OrderedDict()
+        self._cache_max = 10000
 
     # Basic, dependency-free Unicode normalization to reduce spoofing via homoglyphs
     # and compatibility variants. This is not a full UTS#39 implementation, but
@@ -129,23 +133,29 @@ class LIDEnsemble:
             return ("und", 0.0)
 
     def infer(self, text: str) -> Tuple[str, float]:
-        # Ensemble vote over lightweight backends; easy to extend with fastText/XLM-R later.
+        t = self._normalize(text or "")
+        # LRU cache hit
+        if t in self._cache:
+            val = self._cache.pop(t)
+            self._cache[t] = val
+            return val
+        # Ensemble vote
         votes = []
         for v in (self._script_vote, self._roman_hi_vote, self._langid_vote, self._cld3_vote, self._fasttext_vote):
-            code, conf = v(text)
+            code, conf = v(t)
             votes.append((code, conf))
-
-        # Majority over known targets if any vote is confident
         tally = {}
         for code, _ in votes:
             if code == "und": continue
             tally[code] = tally.get(code, 0) + 1
-
         if self.cfg.vote_require_majority and tally:
             winner = max(tally.items(), key=lambda kv: kv[1])[0]
             conf = max([c for (co, c) in votes if co == winner] or [0.5])
-            return (winner, conf)
-
-        # fallback: highest confidence
-        best = max(votes, key=lambda vc: vc[1]) if votes else ("und", 0.0)
-        return best
+            out = (winner, conf)
+        else:
+            out = max(votes, key=lambda vc: vc[1]) if votes else ("und", 0.0)
+        # maintain cache size
+        self._cache[t] = out
+        if len(self._cache) > self._cache_max:
+            self._cache.popitem(last=False)
+        return out

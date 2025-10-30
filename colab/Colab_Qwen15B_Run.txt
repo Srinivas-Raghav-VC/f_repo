@@ -1,0 +1,91 @@
+!nvidia-smi || true
+
+# Fresh clone
+%cd /content
+!rm -rf f_repo
+!git clone --depth=1 https://github.com/Srinivas-Raghav-VC/f_repo f_repo
+%cd /content/f_repo
+
+!python -V
+!pip -q install -U pip
+!pip -q install -r requirements.txt accelerate safetensors matplotlib langid
+
+# Env knobs
+%env TORCH_ALLOW_TF32=1
+%env HF_HUB_ENABLE_HF_TRANSFER=1
+%env SAFETENSORS_FAST=0
+
+# Optional: set your tokens
+# %env HF_TOKEN=YOUR_HF_TOKEN
+# %env GEMINI_API_KEY=YOUR_GEMINI_KEY
+
+# Quick dataset check (files should be under data/ in this repo)
+!python scripts/check_datasets.py --paths \
+  data/forget_hi.jsonl data/retain_en.jsonl data/mixed.jsonl \
+  data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl
+
+# 1) Stability selection (semantic + causal refinement + auto-judge if key set)
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --lora_steps 0 --reft_steps 0 --train_sae_steps 0 \
+  --sample_cap 120 --max_len 128 \
+  --select_mode semantic --min_layer 6 --select_top_k 3 \
+  --stability_select 5 --stability_seeds 11 23 37 61 89 --stability_strategy vote \
+  --device cuda --out selection_stability.json
+
+# 2) Mount Drive and set a run folder
+from google.colab import drive; drive.mount('/content/drive', force_remount=True)
+%env CKPT=/content/drive/MyDrive/mmie_runs/qwen15b_$(date +%Y%m%d_%H%M%S)
+!mkdir -p "$CKPT"
+
+# 3) Train SAEs on the selected layers (ranked file is saved in ckpt_dir)
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --ckpt_dir "$CKPT/ckpt" --force_layers 13 16 14 \
+  --train_sae_steps 1000 --sae_k 32 --sae_expansion 16 \
+  --lora_steps 0 --reft_steps 0 \
+  --device cuda --out "$CKPT/warmup_sae.json"
+
+!ls -l "$CKPT/ckpt" | grep sae_layer || true
+
+# 4) Evaluate Base+Gate (single seed)
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --ckpt_dir "$CKPT/ckpt" --force_layers 13 16 14 --seeds 42 \
+  --lora_steps 0 --reft_steps 0 --train_sae_steps 0 \
+  --sae_gate --sae_gate_alpha 0.35 --sae_gate_topk 32 \
+  --semantic_features --semantic_tau 0.10 --script_scrub --scrub_k 1 \
+  --report_token_kl --device cuda --out "$CKPT/eval_gentle_s42.json"
+
+# 5) Light ReFT (rank auto-inferred when loading)
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --ckpt_dir "$CKPT/ckpt" --force_layers 13 16 14 \
+  --train_sae_steps 0 --lora_steps 0 \
+  --reft_steps 250 --rank 2 --forget_obj npo \
+  --device cuda --out "$CKPT/reft_light.json"
+
+# 6) Aggregate (3 seeds) for the paper bundle
+!python mmie.py \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --forget data/forget_hi.jsonl --retain data/retain_en.jsonl --mixed data/mixed.jsonl \
+  --xlang data/urdu.jsonl data/punjabi.jsonl data/bengali.jsonl \
+  --ckpt_dir "$CKPT/ckpt" --force_layers 13 16 14 --seeds 42 43 44 \
+  --lora_steps 0 --reft_steps 0 --train_sae_steps 0 \
+  --sae_gate --sae_gate_alpha 0.35 --sae_gate_topk 32 \
+  --semantic_features --semantic_tau 0.10 --script_scrub --scrub_k 1 \
+  --report_token_kl --device cuda --out "$CKPT/eval_gentle_agg.json"
+
+!python scripts/summarize_report.py "$CKPT/eval_gentle_agg.json"
+!python tools/plots_from_report.py --in "$CKPT/eval_gentle_agg.json" --out "$CKPT/plots_agg"
+
+print("Done. Check:", "%env CKPT")
+

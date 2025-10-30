@@ -39,12 +39,17 @@ def _bar(ax, labels, vals, title, ylabel, yerr=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('report')
+    ap.add_argument('report', nargs='?')
+    ap.add_argument('--in', dest='inp', help='report path (alias for positional)')
+    ap.add_argument('--out', dest='outdir', help='output folder (optional)')
     args = ap.parse_args()
-    with open(args.report, 'r', encoding='utf-8') as f:
+    report_path = args.inp or args.report
+    if not report_path:
+        raise SystemExit('plots_from_report.py: please pass report path (positional) or --in path')
+    with open(report_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     model = data.get('model', None)
-    outdir = _folder_for(args.report, model)
+    outdir = Path(args.outdir) if args.outdir else _folder_for(report_path, model)
     outdir.mkdir(parents=True, exist_ok=True)
     if plt is None:
         print('[plots] matplotlib not installed; skipping plot generation.')
@@ -155,6 +160,66 @@ def main():
         ax.legend(); ax.grid(axis='y', alpha=0.2)
         fig.tight_layout(); fig.savefig(outdir/'mia_bar.png', dpi=160); plt.close(fig)
 
+    # U-LiRA+
+    ulabs=[]; uav=[]; uac=[]
+    for a in arms:
+        u = take([a,'ulira'])
+        if isinstance(u, dict):
+            ulabs.append(a); uav.append(u.get('AUC_mean', np.nan)); uac.append(u.get('ACC_mean', np.nan))
+    if ulabs:
+        fig, ax = plt.subplots(figsize=(7,4))
+        x = np.arange(len(ulabs))
+        ax.bar(x-0.17, uav, width=0.34, label='AUC')
+        ax.bar(x+0.17, uac, width=0.34, label='ACC')
+        ax.set_xticks(x, ulabs, rotation=20, ha='right')
+        ax.set_ylabel('Score')
+        ax.set_title('U-LiRA+ (higher⇒stronger membership detection)')
+        ax.legend(); ax.grid(axis='y', alpha=0.2)
+        fig.tight_layout(); fig.savefig(outdir/'ulira_bar.png', dpi=160); plt.close(fig)
+
+    # Comprehension proxies (if present)
+    comp_hi_labels = []
+    comp_hi_vals = []
+    comp_lid_vals = []
+    # include base when available
+    base_comp_hi = base.get('comp_hi2en_en_ratio_mean', np.nan)
+    base_comp_lid = base.get('comp_langid_acc_mean', np.nan)
+    if not np.isnan(base_comp_hi) or not np.isnan(base_comp_lid):
+        comp_hi_labels.append('base')
+        comp_hi_vals.append(base_comp_hi)
+        comp_lid_vals.append(base_comp_lid)
+    for a in arms:
+        ch = take([a, 'comp_hi2en_en_ratio_mean'], np.nan)
+        cl = take([a, 'comp_langid_acc_mean'], np.nan)
+        if not (np.isnan(ch) and np.isnan(cl)):
+            comp_hi_labels.append(a)
+            comp_hi_vals.append(ch)
+            comp_lid_vals.append(cl)
+    if comp_hi_labels:
+        fig, ax = plt.subplots(figsize=(7,4))
+        x = np.arange(len(comp_hi_labels))
+        ax.bar(x-0.17, comp_hi_vals, width=0.34, label='HI→EN outputs in English (ratio)')
+        ax.bar(x+0.17, comp_lid_vals, width=0.34, label='LID Yes/No accuracy (HI)')
+        ax.set_xticks(x, comp_hi_labels, rotation=20, ha='right')
+        ax.set_ylabel('Score')
+        ax.set_title('Comprehension Proxies')
+        ax.legend(); ax.grid(axis='y', alpha=0.2)
+        fig.tight_layout(); fig.savefig(outdir/'comprehension_bar.png', dpi=160); plt.close(fig)
+
+    # ActPert delta ES (if present)
+    act_labels=[]; act_vals=[]
+    base_act = base.get('actpert_mean_delta_es', None)
+    if base_act is not None:
+        act_labels.append('base'); act_vals.append(base_act)
+    for a in arms:
+        v = take([a,'actpert_mean_delta_es'], None)
+        if v is not None:
+            act_labels.append(a); act_vals.append(v)
+    if act_labels:
+        fig, ax = plt.subplots(figsize=(7,4))
+        _bar(ax, act_labels, act_vals, 'ActPert ΔES (higher magnitude ⇒ more sensitive)', 'ΔES')
+        fig.tight_layout(); fig.savefig(outdir/'actpert_bar.png', dpi=160); plt.close(fig)
+
     # Layer score bars
     ls = data.get('layer_scores', {})
     if ls:
@@ -172,4 +237,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
