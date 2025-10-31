@@ -734,6 +734,25 @@ class ResidualScaleHook:
         self.layer_ids = list(layer_ids)
         self.scale = float(scale)
         self.handles = []
+        self._attach()
+    def _attach(self):
+        tblocks = _resolve_blocks(self.model)
+        s = self.scale
+        for li in self.layer_ids:
+            def make_hook():
+                @torch.no_grad()
+                def hook(mod, inp, out):
+                    h = out[0] if isinstance(out, tuple) else out
+                    h2 = h * s
+                    return (h2, *out[1:]) if isinstance(out, tuple) else h2
+                return hook
+            h = tblocks[li].register_forward_hook(make_hook())
+            self.handles.append(h)
+    def remove(self):
+        for h in self.handles:
+            try: h.remove()
+            except Exception: pass
+        self.handles = []
 
 class ResidualAddVectorHook:
     """Add or subtract a fixed vector at selected layers: h <- h + scale * v.
@@ -752,34 +771,16 @@ class ResidualAddVectorHook:
             if li not in self.vec:
                 continue
             v = self.vec[li]
-            def make_hook(v_in: torch.Tensor):
+            def make_hook(v_in: torch.Tensor, s: float = None):
+                s = self.scale if s is None else s
                 @torch.no_grad()
                 def hook(mod, inp, out):
                     h = out[0] if isinstance(out, tuple) else out  # [B,T,D]
                     vuse = v_in.to(h.device)
-                    h2 = h + self.scale * vuse.view(1,1,-1)
+                    h2 = h + s * vuse.view(1,1,-1)
                     return (h2, *out[1:]) if isinstance(out, tuple) else h2
                 return hook
             h = tblocks[li].register_forward_hook(make_hook(v))
-            self.handles.append(h)
-    def remove(self):
-        for h in self.handles:
-            try: h.remove()
-            except Exception: pass
-        self.handles = []
-        self._attach()
-    def _attach(self):
-        tblocks = _resolve_blocks(self.model)
-        s = self.scale
-        for li in self.layer_ids:
-            def make_hook():
-                @torch.no_grad()
-                def hook(mod, inp, out):
-                    h = out[0] if isinstance(out, tuple) else out
-                    h2 = h * s
-                    return (h2, *out[1:]) if isinstance(out, tuple) else h2
-                return hook
-            h = tblocks[li].register_forward_hook(make_hook())
             self.handles.append(h)
     def remove(self):
         for h in self.handles:
@@ -1339,7 +1340,26 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
                dual_optimizer: bool = False, lr_forget: float | None = None, lr_retain: float | None = None):
     try:
         from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
-        cfg=LoraConfig(r=rank,lora_alpha=16,lora_dropout=0.0,target_modules=["q_proj","v_proj"],task_type="CAUSAL_LM")
+        # If model is in 4/8bit, prepare for k-bit training before adding adapters
+        try:
+            kbit = bool(getattr(model, 'is_loaded_in_8bit', False) or getattr(model, 'is_loaded_in_4bit', False))
+            if kbit:
+                from peft import prepare_model_for_kbit_training
+                try:
+                    model.gradient_checkpointing_enable()
+                except Exception:
+                    pass
+                # Important for checkpointing with PEFT
+                try:
+                    model.enable_input_require_grads()
+                except Exception:
+                    pass
+                model = prepare_model_for_kbit_training(model)
+        except Exception:
+            pass
+        cfg=LoraConfig(r=rank,lora_alpha=16,lora_dropout=0.0,
+                       target_modules=["q_proj","k_proj","v_proj","o_proj"],
+                       task_type="CAUSAL_LM")
         model=get_peft_model(model,cfg)
     except Exception:
         print("[warn] PEFT not available; training full model heads (no LoRA checkpoint).")
@@ -3414,7 +3434,7 @@ def main():
             mix_sem_ok = True
             if base_mix_sem is not None and ("es_mixed_semantic_mean" in summary_dict[arm]):
                 mix_sem_ok = (summary_dict[arm]["es_mixed_semantic_mean"] <= (args.gate_es_mixed_ratio*base_mix_sem if base_mix_sem>0 else 0.1))
-            red_ok = (not summary_dict[arm]["redistribution_flag"]) 
+            red_ok = (not summary_dict[arm]["redistribution_flag"])
             adv_ok = True
             if base_adv is not None and ("es_adversarial_mean" in summary_dict[arm]):
                 adv_ok = (summary_dict[arm]["es_adversarial_mean"] <= (0.7*base_adv if base_adv>0 else 0.3))
