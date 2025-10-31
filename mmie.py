@@ -262,7 +262,7 @@ def _sanitize_json(obj):
     if isinstance(obj, list):
         return [_sanitize_json(v) for v in obj]
     if isinstance(obj, float):
-    return obj if math.isfinite(obj) else None
+        return obj if math.isfinite(obj) else None
     return obj
 
 # -------------------- script detection --------------------
@@ -394,9 +394,11 @@ def collect_layer_means(model,tok,texts,layers,device,max_len=256,cap=1000,per_t
                 tsel = min(tokens_per_seq, T)
                 idx = torch.randint(0, T, (B, tsel), device=H.device)
                 picked = H[torch.arange(B).unsqueeze(1), idx]  # [B,tsel,D]
-                acts[li].append(picked.reshape(-1, D).detach().cpu().numpy().astype(np.float32))
+                arr = picked.reshape(-1, D).detach().to(torch.float32).cpu().numpy()
+                acts[li].append(arr)
             else:
-                acts[li].append(H.detach().mean(dim=1).cpu().numpy().astype(np.float32))
+                arr = H.detach().mean(dim=1).to(torch.float32).cpu().numpy()
+                acts[li].append(arr)
     return {li:(np.concatenate(acts[li],0) if acts[li] else np.zeros((0,model.config.hidden_size), dtype=np.float32)) for li in layers}
 
 def _capture_mean_hidden(model, tok, text: str, layer: int, device: str, max_len: int = 128) -> Optional[torch.Tensor]:
@@ -2121,6 +2123,8 @@ class Args:
     unlearn_rank: int = 16
     dsg: bool = False
     dsg_threshold: float = 0.5
+    # SAE feature picker (activation, semantic, grad)
+    sae_feature_picker: str = 'grad'
 
 def parse():
     ap=argparse.ArgumentParser()
@@ -2983,124 +2987,124 @@ def main():
             gate=None
             scrub=None
             try:
-            if args.sae_gate and sae_modules:
-                try:
-                    gate = SAEGate(model, chosen, sae_modules, sae_gate_features, alpha=args.sae_gate_alpha)
-                except Exception as e:
-                    print(f"[sae-gate] attach failed: {e}")
-            if args.script_scrub:
-                try:
-                    # Learn script directions using Hindi-Deva vs Hindi-Roman controls
-                    forget_rom = _romanize_texts(forget)
-                    W_per_layer = {}
-                    for li in chosen:
-                        W = learn_script_subspace(model, tok, forget, forget_rom, li, device, max_len=args.max_len, bs=32, cap_each=256, k=max(1,args.scrub_k))
-                        if W.size > 0:
-                            W_per_layer[li] = W
-                    if W_per_layer:
-                        scrub = LinearProjectHook(model, chosen, W_per_layer)
-                        print("[scrub] attached linear projector")
-                except Exception as e:
-                    print(f"[scrub] attach failed: {e}")
-
-            if args.dynamic_gate and gate is not None:
-                if getattr(args, 'semantic_dynamic_gate', False):
-                    gens_f = generate_with_semantic_gating(model,tok,lid,forget[:200],device,gate,base_alpha=max(0.0, args.sae_gate_alpha-0.2),high_alpha=min(1.0, args.sae_gate_alpha+0.2))
-                else:
-                    gens_f = generate_with_dynamic_gating(model,tok,lid,forget[:200],device,gate,base_alpha=max(0.0, args.sae_gate_alpha-0.2),high_alpha=min(1.0, args.sae_gate_alpha+0.2))
-            else:
-                gens_f = generate(model,tok,forget[:200],device)
-            es_forget = extraction_strength(gens_f, lid, target_code="hi", use_script_guard=True)
-            # Script-blind semantic ES for forget set
-            es_forget_sem = None
-            try:
-                rom_f = _romanize_texts(gens_f)
-                es_forget_sem = extraction_strength(rom_f, lid, target_code="hi", use_script_guard=False)
-            except Exception:
-                pass
-            ppl_retain = perplexity(model,tok,retain[:200],device)
-            gens_m = generate(model,tok,mixed[:150],device)
-            es_mixed  = extraction_strength(gens_m, lid, target_code="hi", use_script_guard=True)
-            es_mixed_sem = None
-            try:
-                rom_m = _romanize_texts(gens_m)
-                es_mixed_sem = extraction_strength(rom_m, lid, target_code="hi", use_script_guard=False)
-            except Exception:
-                pass
-            # Adversarial ES for this arm
-            es_adversarial = None
-            try:
-                if adversarial:
-                    gens_a = generate(model,tok,adversarial[:150],device)
-                    es_adversarial = extraction_strength(gens_a, lid, target_code="hi", use_script_guard=True)
-            except Exception:
-                pass
-            others=[l for l in probe_layers if l not in chosen] or probe_layers
-            probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
-            mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
-            # U-LiRA+ (per-example LR)
-            ulira = None
-            try:
-                ulira = ulira_attack(base, model, tok, forget[:80], retain[:80], device, max_len=int(args.max_len))
-            except Exception:
-                ulira = None
-            token_kl_mean = None
-            if args.report_token_kl:
-                vals=[]
-                for batch in chunked(retain[:120], 8):
-                    enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-                    vals.append(token_kl_to_base(model, base, enc).item())
-                token_kl_mean = float(np.mean(vals)) if vals else None
-            comp = None
-            if getattr(args, 'report_comprehension', False):
-                try:
-                    comp = _comprehension_metrics(model, tok, lid, forget, device, cap=int(args.comprehension_cap), max_len=int(args.max_len))
-                except Exception:
-                    comp = None
-            xes={}
-            for lname,xt in xlang_sets:
-                try:
-                    xes[lname]=extraction_strength(generate(model,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
-                finally:
+                if args.sae_gate and sae_modules:
                     try:
-                        if torch.cuda.is_available(): torch.cuda.empty_cache()
-                    except Exception:
-                        pass
+                        gate = SAEGate(model, chosen, sae_modules, sae_gate_features, alpha=args.sae_gate_alpha)
+                    except Exception as e:
+                        print(f"[sae-gate] attach failed: {e}")
+                if args.script_scrub:
+                    try:
+                        # Learn script directions using Hindi-Deva vs Hindi-Roman controls
+                        forget_rom = _romanize_texts(forget)
+                        W_per_layer = {}
+                        for li in chosen:
+                            W = learn_script_subspace(model, tok, forget, forget_rom, li, device, max_len=args.max_len, bs=32, cap_each=256, k=max(1,args.scrub_k))
+                            if W.size > 0:
+                                W_per_layer[li] = W
+                        if W_per_layer:
+                            scrub = LinearProjectHook(model, chosen, W_per_layer)
+                            print("[scrub] attached linear projector")
+                    except Exception as e:
+                        print(f"[scrub] attach failed: {e}")
 
-            # Save activations for this arm (forget/retain only, to limit size)
-            if not getattr(args, 'no_save_activations', False):
+                if args.dynamic_gate and gate is not None:
+                    if getattr(args, 'semantic_dynamic_gate', False):
+                        gens_f = generate_with_semantic_gating(model,tok,lid,forget[:200],device,gate,base_alpha=max(0.0, args.sae_gate_alpha-0.2),high_alpha=min(1.0, args.sae_gate_alpha+0.2))
+                    else:
+                        gens_f = generate_with_dynamic_gating(model,tok,lid,forget[:200],device,gate,base_alpha=max(0.0, args.sae_gate_alpha-0.2),high_alpha=min(1.0, args.sae_gate_alpha+0.2))
+                else:
+                    gens_f = generate(model,tok,forget[:200],device)
+                es_forget = extraction_strength(gens_f, lid, target_code="hi", use_script_guard=True)
+                # Script-blind semantic ES for forget set
+                es_forget_sem = None
                 try:
-                    arm_sets = {"forget": forget[:200], "retain": retain[:200]}
-                    save_activations_for_sets(model, tok, device, chosen or list(range(n_layers))[:3], arm_sets, f"{out_stem}_{name}", cap_per_set=200)
-                except Exception as e:
-                    print(f"[acts] arm {name} activation save skipped: {e}")
-
-            # Optional ActPert on this arm
-            actpert_mean = None
-            if getattr(args, 'actpert_audit', False) and chosen:
-                try:
-                    d_arm = actpert_audit(model, tok, lid, mixed[:120], chosen, device, amp=float(getattr(args,'actpert_amp',0.1)), max_len=int(args.max_len), cap=80)
-                    if d_arm:
-                        actpert_mean = float(np.mean(list(d_arm.values())))
+                    rom_f = _romanize_texts(gens_f)
+                    es_forget_sem = extraction_strength(rom_f, lid, target_code="hi", use_script_guard=False)
                 except Exception:
-                    actpert_mean = None
+                    pass
+                ppl_retain = perplexity(model,tok,retain[:200],device)
+                gens_m = generate(model,tok,mixed[:150],device)
+                es_mixed  = extraction_strength(gens_m, lid, target_code="hi", use_script_guard=True)
+                es_mixed_sem = None
+                try:
+                    rom_m = _romanize_texts(gens_m)
+                    es_mixed_sem = extraction_strength(rom_m, lid, target_code="hi", use_script_guard=False)
+                except Exception:
+                    pass
+                # Adversarial ES for this arm
+                es_adversarial = None
+                try:
+                    if adversarial:
+                        gens_a = generate(model,tok,adversarial[:150],device)
+                        es_adversarial = extraction_strength(gens_a, lid, target_code="hi", use_script_guard=True)
+                except Exception:
+                    pass
+                others=[l for l in probe_layers if l not in chosen] or probe_layers
+                probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
+                mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                # U-LiRA+ (per-example LR)
+                ulira = None
+                try:
+                    ulira = ulira_attack(base, model, tok, forget[:80], retain[:80], device, max_len=int(args.max_len))
+                except Exception:
+                    ulira = None
+                token_kl_mean = None
+                if args.report_token_kl:
+                    vals=[]
+                    for batch in chunked(retain[:120], 8):
+                        enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
+                        vals.append(token_kl_to_base(model, base, enc).item())
+                    token_kl_mean = float(np.mean(vals)) if vals else None
+                comp = None
+                if getattr(args, 'report_comprehension', False):
+                    try:
+                        comp = _comprehension_metrics(model, tok, lid, forget, device, cap=int(args.comprehension_cap), max_len=int(args.max_len))
+                    except Exception:
+                        comp = None
+                xes={}
+                for lname,xt in xlang_sets:
+                    try:
+                        xes[lname]=extraction_strength(generate(model,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
+                    finally:
+                        try:
+                            if torch.cuda.is_available(): torch.cuda.empty_cache()
+                        except Exception:
+                            pass
 
-            arm_entry = {
-                "seed":seed,
-                "es_forget":es_forget,
-                **({"es_forget_semantic": es_forget_sem} if es_forget_sem is not None else {}),
-                "ppl_retain":ppl_retain,
-                "es_mixed":es_mixed,
-                **({"es_mixed_semantic": es_mixed_sem} if es_mixed_sem is not None else {}),
-                "probes_other_layers":probes,"mia":mia,"crosslingual_es":xes,
-                **({"es_adversarial": es_adversarial} if es_adversarial is not None else {}),
-                **({"token_kl_retain":token_kl_mean} if token_kl_mean is not None else {}),
-                **({"actpert_mean_delta_es": actpert_mean} if actpert_mean is not None else {}),
-                **({"ulira": ulira} if ulira is not None else {})
-            }
-            if comp is not None:
-                arm_entry.update(comp)
-            results["arms"].setdefault(name,{}).setdefault("seeds",[]).append(arm_entry)
+                # Save activations for this arm (forget/retain only, to limit size)
+                if not getattr(args, 'no_save_activations', False):
+                    try:
+                        arm_sets = {"forget": forget[:200], "retain": retain[:200]}
+                        save_activations_for_sets(model, tok, device, chosen or list(range(n_layers))[:3], arm_sets, f"{out_stem}_{name}", cap_per_set=200)
+                    except Exception as e:
+                        print(f"[acts] arm {name} activation save skipped: {e}")
+
+                # Optional ActPert on this arm
+                actpert_mean = None
+                if getattr(args, 'actpert_audit', False) and chosen:
+                    try:
+                        d_arm = actpert_audit(model, tok, lid, mixed[:120], chosen, device, amp=float(getattr(args,'actpert_amp',0.1)), max_len=int(args.max_len), cap=80)
+                        if d_arm:
+                            actpert_mean = float(np.mean(list(d_arm.values())))
+                    except Exception:
+                        actpert_mean = None
+
+                arm_entry = {
+                    "seed":seed,
+                    "es_forget":es_forget,
+                    **({"es_forget_semantic": es_forget_sem} if es_forget_sem is not None else {}),
+                    "ppl_retain":ppl_retain,
+                    "es_mixed":es_mixed,
+                    **({"es_mixed_semantic": es_mixed_sem} if es_mixed_sem is not None else {}),
+                    "probes_other_layers":probes,"mia":mia,"crosslingual_es":xes,
+                    **({"es_adversarial": es_adversarial} if es_adversarial is not None else {}),
+                    **({"token_kl_retain":token_kl_mean} if token_kl_mean is not None else {}),
+                    **({"actpert_mean_delta_es": actpert_mean} if actpert_mean is not None else {}),
+                    **({"ulira": ulira} if ulira is not None else {})
+                }
+                if comp is not None:
+                    arm_entry.update(comp)
+                results["arms"].setdefault(name,{}).setdefault("seeds",[]).append(arm_entry)
             finally:
                 # ALWAYS cleanup hooks, even on exception
                 try:
