@@ -1482,7 +1482,9 @@ def resume_lora(model, tok, device, ckpt_dir: str = ".", rank: int = 8):
         from peft import LoraConfig, get_peft_model
         path = os.path.join(ckpt_dir, "lora_adapters.pt")
         if os.path.exists(path):
-            cfg=LoraConfig(r=rank,lora_alpha=16,lora_dropout=0.0,target_modules=["q_proj","v_proj"],task_type="CAUSAL_LM")
+            cfg=LoraConfig(r=rank,lora_alpha=16,lora_dropout=0.0,
+                           target_modules=["q_proj","k_proj","v_proj","o_proj"],
+                           task_type="CAUSAL_LM")
             model=get_peft_model(model,cfg)
             sd=torch.load(path, map_location=device)
             model.load_state_dict(sd, strict=False)

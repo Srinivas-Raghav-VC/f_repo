@@ -4,7 +4,7 @@ import json, argparse, sys
 GATE_ORDER = [
     "G1_ES50", "G1S_ES50_sem", "G2_PPL10",
     "G3_MIX30", "G3S_MIX30_sem", "G4_NoRedistrib",
-    "G5_NoXLeak", "G6_MIA0",
+    "G5_NoXLeak", "G6_MIA0", "G7_AdvES",
 ]
 
 def main():

@@ -56,7 +56,7 @@ def train_lora(...):
         if base is not None:
             del base
             torch.cuda.empty_cache()
-    
+
     model.eval()
     return model
 ```
@@ -127,10 +127,10 @@ def infinite_loader(loader):
 **Problem:**
 ```python
 def _sae_pick_topk(...):
-    # ... 
+    # ...
     grad_accum = torch.zeros(d, dtype=torch.float32, device=device)
     count = 0
-    
+
     def _bwd_hook(mod, gin, gout):
         nonlocal grad_accum, count  # ← Closure captures mutable state
         try:
@@ -141,7 +141,7 @@ def _sae_pick_topk(...):
                 count += 1
         except Exception:
             pass
-    
+
     handle = blocks[layer].register_full_backward_hook(_bwd_hook)
     # ... backward passes ...
     handle.remove()
@@ -159,7 +159,7 @@ def _sae_pick_topk(...):
     # Use a mutable container instead of direct reassignment
     state = {'grad_accum': torch.zeros(d, dtype=torch.float32, device=device),
              'count': 0}
-    
+
     def _bwd_hook(mod, gin, gout):
         try:
             g = gout[0]
@@ -169,11 +169,11 @@ def _sae_pick_topk(...):
                 state['count'] += 1
         except Exception:
             pass
-    
+
     handle = blocks[layer].register_full_backward_hook(_bwd_hook)
     # ... backward passes ...
     handle.remove()
-    
+
     if state['count'] == 0:
         return []
     gvec = (state['grad_accum'] / max(1, state['count'])).to(torch.float32)
@@ -199,7 +199,7 @@ class SAEGate:
         # ...
         self.handles = []
         self._attach()  # ← Attaches hooks immediately
-    
+
     def _attach(self):
         tblocks = _resolve_blocks(self.model)
         for li in self.layer_ids:
@@ -229,19 +229,19 @@ def _attach(self):
     tblocks = _resolve_blocks(self.model)
     ref = next(self.model.parameters())
     target_device = ref.device
-    
+
     # Move ALL SAEs to target device BEFORE hook registration
     for li in self.layer_ids:
         if li in self.sae:
             self.sae[li] = self.sae[li].to(device=target_device, dtype=torch.float32)
-    
+
     # Now register hooks (no device movement in hook)
     for li in self.layer_ids:
         if li not in self.sae or li not in self.feature_idx:
             continue
         sae = self.sae[li]  # Already on correct device
         feat_idx = self.feature_idx[li].to(target_device)
-        
+
         def make_hook(sae_module: TopKSAE, idx_tensor: torch.Tensor):
             @torch.no_grad()
             def hook(mod, inp, out):
@@ -249,7 +249,7 @@ def _attach(self):
                 # No device checks needed - everything pre-aligned
                 # ... rest of hook logic ...
             return hook
-        
+
         h = tblocks[li].register_forward_hook(make_hook(sae, feat_idx))
         self.handles.append(h)
 ```
@@ -315,7 +315,7 @@ def bootstrap_ci(values: List[float], alpha=0.05, n_boot=2000, seed=0):
         return m, (float(lo), float(hi))
     except Exception:
         pass  # Falls through to manual bootstrap
-    
+
     # Manual bootstrap (no pingouin)
     rng = np.random.default_rng(seed)
     boots = sorted([np.mean(rng.choice(x, len(x), replace=True)) for _ in range(n_boot)])
@@ -365,7 +365,7 @@ def _curriculum_weights(model, tok, forget, retain, device, step, total_steps):
     else:  # hard focus
         w_f = np.exp(-scores_f / temp)
         w_r = np.exp(-scores_r / temp)
-    
+
     # Normalize
     w_f = w_f / (w_f.sum() + 1e-9)
     w_r = w_r / (w_r.sum() + 1e-9)
@@ -388,15 +388,15 @@ _curriculum_cache = {}
 
 def _curriculum_weights(model, tok, forget, retain, device, step, total_steps, cache_key=None):
     phase = int(3 * step / max(1, total_steps))
-    
+
     if cache_key is None:
         cache_key = (id(model), phase, tuple(forget[:10]), tuple(retain[:10]))
-    
+
     if cache_key in _curriculum_cache:
         return _curriculum_cache[cache_key]
-    
+
     # ... compute weights ...
-    
+
     weights = (w_f, w_r)
     _curriculum_cache[cache_key] = weights
     return weights
@@ -506,7 +506,7 @@ tests_nan = [t for t in tests if np.isnan(t['pval'])]
 if tests_valid:
     pvals = [t['pval'] for t in tests_valid]
     reject, pvals_corrected, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
-    
+
     for t, rej, pcorr in zip(tests_valid, reject, pvals_corrected):
         gates[t['arm']][t['gate_key']] = bool(rej)
 

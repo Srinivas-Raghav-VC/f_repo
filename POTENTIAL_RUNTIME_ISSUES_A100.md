@@ -35,10 +35,10 @@ After deep analysis of `mmie.py` with focus on A100 deployment, here are **all p
 for name,model in {"lora":lora,"reft":reft}.items():
     gate = SAEGate(...)  # Hooks attached here
     scrub = LinearProjectHook(...)
-    
+
     # ... 100 lines of evaluation code ...
     # Any exception here leaves hooks attached!
-    
+
     if gate is not None:
         gate.remove()  # Only reached if no exception
 ```
@@ -59,9 +59,9 @@ for name,model in {"lora":lora,"reft":reft}.items():
             gate = SAEGate(...)
         if args.script_scrub:
             scrub = LinearProjectHook(...)
-        
+
         # Evaluation code...
-        
+
     finally:
         # ALWAYS cleanup, even on exception
         if gate is not None:
@@ -142,7 +142,7 @@ for lname, xt in xlang_sets:
 
 **Problem:**
 ```python
-enc = tok(batch, return_tensors='pt', padding=True, 
+enc = tok(batch, return_tensors='pt', padding=True,
           truncation=True, max_length=256)
 ```
 
@@ -259,7 +259,7 @@ except Exception:
 **Current Protection:**
 ```python
 # Line 303-305:
-genai.configure(api_key=key, 
+genai.configure(api_key=key,
                 transport='rest',  # Avoids gRPC issues
                 client_options=...)
 ```
@@ -555,10 +555,10 @@ for name,model in {"lora":lora,"reft":reft}.items():
             gate = SAEGate(...)
         if args.script_scrub:
             scrub = LinearProjectHook(...)
-        
+
         # All evaluation code...
         # (lines 2967-3058)
-        
+
     finally:
         # ALWAYS cleanup
         if gate is not None:
