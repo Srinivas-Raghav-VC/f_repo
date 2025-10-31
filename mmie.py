@@ -115,8 +115,12 @@ def bca_ci(values:List[float], alpha=0.05, n_boot=2000, seed=0):
 # Reusable infinite iterators that do NOT cache content in memory
 def infinite_loader(loader):
     while True:
+        batch_count = 0
         for batch in loader:
+            batch_count += 1
             yield batch
+        if batch_count == 0:
+            raise RuntimeError("DataLoader produced no batches - dataset may be empty after filtering!")
 
 def infinite_from_factory(factory):
     # factory must return a fresh iterable/generator when called
@@ -1167,7 +1171,18 @@ def ensure_generation_padding(model, tok):
 def load_causal_lm(model_id: str, tok, device: str, hf_token=None, eval_mode=False):
     cfg = AutoConfig.from_pretrained(model_id, token=hf_token)
     on_cuda = (device.startswith("cuda") and torch.cuda.is_available())
-    dtype = torch.float16 if on_cuda else torch.float32
+    # Prefer BF16 on A100/Ampere where available; otherwise FP16 on CUDA, FP32 on CPU
+    if on_cuda and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
+        dtype = torch.bfloat16
+    else:
+        dtype = torch.float16 if on_cuda else torch.float32
+    # Enable TF32 fast paths on Ampere+ (safe for A100); noop on older GPUs
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision('high')
+    except Exception:
+        pass
     # Optional knobs via environment (no new CLI flags needed):
     # - OFFLOAD_DIR: set to a writable folder to allow accelerate to offload weights
     # - LOAD_IN_8BIT / LOAD_IN_4BIT: set to '1' to request quantized loading (requires bitsandbytes)
@@ -1404,7 +1419,8 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
             if forget_obj=="npo":
                 if base is None:
                     base=load_causal_lm(model.config._name_or_path, tok, device, hf_token, eval_mode=True)
-                    [p.requires_grad_(False) for p in base.parameters()]
+                    for p in base.parameters():
+                        p.requires_grad_(False)
                 loss=npo_loss(model, base, b)
             elif forget_obj=="bounded":
                 loss=bounded_unlearning_loss(model, b, bound=float(bounded_forget_bound))
@@ -1415,7 +1431,8 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
             b=next(itr)
             if base is None:
                 base=load_causal_lm(model.config._name_or_path, tok, device, hf_token, eval_mode=True)
-                [p.requires_grad_(False) for p in base.parameters()]
+                for p in base.parameters():
+                    p.requires_grad_(False)
             with torch.no_grad(): base_logits=base(**b).logits.detach()
             loss=kl_to_base(model,base_logits,b)
             is_forget=False
@@ -1449,6 +1466,15 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
             print(f"[lora] saved {path}")
     except Exception as e:
         print(f"[lora] save skipped: {e}")
+    finally:
+        # Cleanup reference model to prevent memory leak
+        if base is not None:
+            try:
+                del base
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
     model.eval(); return model
 
 def resume_lora(model, tok, device, ckpt_dir: str = ".", rank: int = 8):
@@ -1481,7 +1507,8 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
     Lf=loader(tok,forget,device,bs,max_len); Lr=loader(tok,retain,device,bs,max_len)
     itf=infinite_loader(Lf); itr=infinite_loader(Lr)
     base=load_causal_lm(model.config._name_or_path, tok, device, hf_token, eval_mode=True)
-    [p.requires_grad_(False) for p in base.parameters()]
+    for p in base.parameters():
+        p.requires_grad_(False)
     model.train()
     best_loss = float('inf'); patience = 0
     for step in tqdm(range(steps),desc="ReFT"):
@@ -1557,6 +1584,14 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
         print(f"[reft] saved {path}")
     except Exception as e:
         print(f"[reft] save skipped: {e}")
+    finally:
+        # Cleanup reference model to prevent memory leak
+        try:
+            del base
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
     model.eval(); return model
 
 def train_reft_with_pyreft(model, tok, layers, forget, retain, device, rank=4, steps=400, use_grun: bool = True):
@@ -2429,7 +2464,8 @@ def main():
         raise ValueError("Tokenizer must expose a valid pad_token_id")
 
     base=load_causal_lm(args.model, tok, device, hf_token, eval_mode=True)
-    [p.requires_grad_(False) for p in base.parameters()]
+    for p in base.parameters():
+        p.requires_grad_(False)
     try:
         n_layers = len(_resolve_blocks(base))
     except Exception as e:
@@ -2944,6 +2980,7 @@ def main():
         for name,model in {"lora":lora,"reft":reft}.items():
             gate=None
             scrub=None
+            try:
             if args.sae_gate and sae_modules:
                 try:
                     gate = SAEGate(model, chosen, sae_modules, sae_gate_features, alpha=args.sae_gate_alpha)
@@ -3020,7 +3057,13 @@ def main():
                     comp = None
             xes={}
             for lname,xt in xlang_sets:
-                xes[lname]=extraction_strength(generate(model,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
+                try:
+                    xes[lname]=extraction_strength(generate(model,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
+                finally:
+                    try:
+                        if torch.cuda.is_available(): torch.cuda.empty_cache()
+                    except Exception:
+                        pass
 
             # Save activations for this arm (forget/retain only, to limit size)
             if not getattr(args, 'no_save_activations', False):
@@ -3056,10 +3099,18 @@ def main():
             if comp is not None:
                 arm_entry.update(comp)
             results["arms"].setdefault(name,{}).setdefault("seeds",[]).append(arm_entry)
-            if gate is not None:
-                gate.remove()
-            if scrub is not None:
-                scrub.remove()
+            finally:
+                # ALWAYS cleanup hooks, even on exception
+                try:
+                    if gate is not None:
+                        gate.remove()
+                except Exception:
+                    pass
+                try:
+                    if scrub is not None:
+                        scrub.remove()
+                except Exception:
+                    pass
 
         # DSG baseline: dynamic SAE gating on base (no training)
         try:
