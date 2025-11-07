@@ -72,8 +72,12 @@ if __name__=='__main__':
 PY
 chmod +x notify_email.py
 
-# Resolve Python interpreter (prefer python3)
-if command -v python3 >/dev/null 2>&1; then
+# Resolve Python interpreter (prefer project venv, else python3)
+if [[ -n "${VENV:-}" && -x "$VENV/bin/python" ]]; then
+  PY="$VENV/bin/python"
+elif [[ -x "./venv/bin/python" ]]; then
+  PY="./venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
   PY="python3"
 elif command -v python >/dev/null 2>&1; then
   PY="python"
@@ -81,6 +85,7 @@ else
   echo "[error] No Python interpreter found (need python3 or python)" >&2
   exit 1
 fi
+echo "[runner] using interpreter: $PY"
 
 notify() {
   local subject="$1"; shift
@@ -113,8 +118,9 @@ Host: $(hostname)"
 fi
 
 # Build mmie.py arguments; auto-enable judge assist when GEMINI_API_KEY is present
+# You can disable judge via: export DISABLE_JUDGE=1  (or run with GEMINI_API_KEY unset)
 EXTRA_ARGS=("$@")
-if [[ -n "${GEMINI_API_KEY:-}" ]]; then EXTRA_ARGS+=("--judge_assist_selection"); fi
+if [[ -z "${DISABLE_JUDGE:-}" && -n "${GEMINI_API_KEY:-}" ]]; then EXTRA_ARGS+=("--judge_assist_selection"); fi
 
 echo "[run] $(now_utc) $PY mmie.py ${EXTRA_ARGS[*]}" | tee -a "$LOG_FILE"
 
