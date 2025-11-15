@@ -2298,6 +2298,35 @@ def _save_env_manifest(out_dir: str, args: Args):
     except Exception as e:
         print(f"[manifest] skipped: {e}")
 
+
+def _ensure_ckpt_dir(path: str) -> str:
+    """Best-effort creation of ckpt_dir with a safe fallback.
+
+    If `path` is not writable (e.g., '/path' on shared systems), fall back to a
+    local './ckpt' directory and log a warning instead of crashing.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except PermissionError:
+        fallback = os.path.join(os.getcwd(), 'ckpt')
+        try:
+            os.makedirs(fallback, exist_ok=True)
+            print(f"[ckpt] permission denied for {path!r}; falling back to {fallback!r}")
+            return fallback
+        except Exception as e:
+            print(f"[ckpt] fallback creation failed at {fallback!r}: {e}")
+            raise
+    except OSError as e:
+        fallback = os.path.join(os.getcwd(), 'ckpt')
+        try:
+            os.makedirs(fallback, exist_ok=True)
+            print(f"[ckpt] could not create {path!r}: {e}; using {fallback!r}")
+            return fallback
+        except Exception as e2:
+            print(f"[ckpt] fallback creation failed at {fallback!r}: {e2}")
+            raise
+
 def _create_auto_bundle(out_dir: str):
     try:
         import tarfile
@@ -2396,7 +2425,8 @@ def main():
             # ckpt dir inside auto_dir unless user set one explicitly
             if args.ckpt_dir in (None, '.', '') or args.ckpt_dir == getattr(Args, 'ckpt_dir', '.'):
                 args.ckpt_dir = os.path.join(auto_dir, 'ckpt')
-                os.makedirs(args.ckpt_dir, exist_ok=True)
+            # Ensure ckpt_dir is writable (fallback to ./ckpt if not)
+            args.ckpt_dir = _ensure_ckpt_dir(args.ckpt_dir)
             # set output JSON
             if args.out == getattr(Args,'out','eval_report.json') or not args.out:
                 args.out = os.path.join(auto_dir, 'results.json')
@@ -2714,7 +2744,8 @@ def main():
     # SAEs (train or load)
     sae_info={}
     pool=forget+retain
-    os.makedirs(args.ckpt_dir, exist_ok=True)
+    # Ensure ckpt_dir exists and is writable (handles accidental '/path' etc.)
+    args.ckpt_dir = _ensure_ckpt_dir(args.ckpt_dir)
     for li in chosen:
         sae_path=os.path.join(args.ckpt_dir, f"sae_layer{li}.pt")
         # Prefer SAELens directory if provided
