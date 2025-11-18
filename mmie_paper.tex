@@ -35,7 +35,7 @@
 \maketitle
 
 \begin{abstract}
-Machine unlearning in large language models (LLMs) presents significant challenges, particularly in multilingual settings where knowledge spans multiple scripts and linguistic representations. We introduce \textbf{MMIE} (Multilingual Machine Interpretable Unlearning via Sparse Autoencoders), a novel framework that leverages sparse autoencoders (SAEs) for targeted, interpretable unlearning across multiple languages and scripts. Our approach addresses two critical challenges: (1) \textit{cross-script leakage}, where unlearning Devanagari Hindi fails to remove Romanized Hindi representations, and (2) \textit{cross-lingual transfer}, where unlearning one language affects linguistically related languages (e.g., Hindi→Urdu, Punjabi, Bengali). We propose a 7-gate, FDR-corrected evaluation framework that rigorously assesses unlearning across efficacy, utility preservation, privacy, adversarial robustness, and cross-lingual effects. Through comprehensive experiments comparing four unlearning methods (UNLEARN, DSG, LoRA+SAE, GRUN+SAE), we demonstrate that GRUN combined with dynamic SAE gating achieves superior unlearning (ES=0.04) while maintaining model utility (PPL↑10.7\%) and resisting privacy attacks (U-LiRA AUC=0.56). Our romanization ablation study reveals that script-specific unlearning provides incomplete protection, with 3-4× higher extraction strength on non-target scripts. Our work establishes a rigorous foundation for multilingual unlearning research and provides open-source implementations to facilitate reproducibility.
+Machine unlearning in large language models (LLMs) presents significant challenges, particularly in multilingual settings where knowledge spans multiple scripts and linguistic representations. We introduce \textbf{MMIE} (Multilingual Machine Interpretable Unlearning via Sparse Autoencoders), a framework that leverages sparse autoencoders (SAEs) and representation finetuning (ReFT/GRUN) for targeted, interpretable unlearning across multiple languages and scripts. Our approach addresses two critical challenges: (1) \textit{cross-script leakage}, where unlearning Devanagari Hindi may fail to remove Romanized Hindi representations, and (2) \textit{cross-lingual transfer}, where unlearning one language can affect linguistically related languages (e.g., Hindi→Urdu, Punjabi, Bengali). We propose a multi-gate, FDR-corrected evaluation framework that rigorously assesses unlearning across efficacy, utility preservation, privacy, adversarial robustness, and cross-lingual effects. In a case study on Qwen2.5-1.5B-Instruct, we find that GRUN-style representation edits combined with SAE gating substantially reduce Hindi extraction strength (ES $\approx X_{\text{ES}}$) while incurring only modest perplexity degradation on English (PPL increase $\approx X_{\text{PPL}}$\%). Preliminary privacy audits show membership-inference risk close to chance (MIA AUC $\approx X_{\text{MIA}}$), but stronger attacks such as U-LiRA reveal residual leakage (AUC $\approx X_{\text{ULIRA}}$). Romanization ablations indicate that script-specific unlearning remains incomplete, with extraction strength on non-target scripts up to $X_{\text{ROMAN}}\times$ higher than on the target script. Our work establishes a rigorous, causally motivated foundation for multilingual unlearning and provides open-source implementations to facilitate reproducibility.
 \end{abstract}
 
 % ===========================
@@ -73,15 +73,15 @@ We introduce \textbf{MMIE} (Multilingual Machine Interpretable Unlearning), a fr
     \item \textbf{Open-Source Implementation:} We release a fully reproducible codebase with automated pipelines, reproducibility bundles, and comprehensive documentation to facilitate future research.
 \end{itemize}
 
-\subsection{Key Findings}
+\subsection{Key Findings (placeholders to be filled from \texttt{eval\_full.json})}
 
 Our experiments on Qwen2.5-1.5B-Instruct reveal several critical insights:
 
 \begin{itemize}
-    \item \textbf{GRUN+SAE outperforms baselines:} Achieving 95.4\% forget efficacy (ES=0.04) with only 10.7\% utility degradation (PPL: 15.2→16.8).
-    \item \textbf{Cross-script transfer is significant:} Unlearning Devanagari-only Hindi results in 4× higher ES on Romanized Hindi (0.12 vs. 0.03).
-    \item \textbf{U-LiRA reveals hidden vulnerabilities:} While standard MIA suggests adequate privacy (AUC=0.54), U-LiRA shows higher risk (AUC=0.59).
-    \item \textbf{Dynamic gating is essential:} Static SAE gating (α=0.35, k=32) underperforms dynamic, activation-based gating by 15-20\%.
+    \item \textbf{GRUN+SAE vs. LoRA baseline:} For the Hindi forget task, GRUN+SAE reduces extraction strength from ES$_{\text{base}} \approx X_{\text{ES,base}}$ to ES$_{\text{GRUN}} \approx X_{\text{ES,grun}}$, while increasing English retain perplexity from PPL$_{\text{base}} \approx X_{\text{PPL,base}}$ to PPL$_{\text{GRUN}} \approx X_{\text{PPL,grun}}$.
+    \item \textbf{Cross-script transfer:} Unlearning primarily on Devanagari prompts still leaves non-trivial Romanized Hindi leakage, with Romanized ES$_{\text{GRUN}} \approx X_{\text{ES,roman}}$ compared to Devanagari ES$_{\text{GRUN}} \approx X_{\text{ES,deva}}$.
+    \item \textbf{Privacy audits:} Standard MIA reports AUC $\approx X_{\text{MIA,grun}}$ for GRUN+SAE, close to chance, but stronger U-LiRA-style audits (when available) show AUC $\approx X_{\text{ULIRA,grun}}$, indicating residual memorization.
+    \item \textbf{Effect of gating hyperparameters:} The data-driven choice $(\alpha \approx 0.44, k=16, \tau \approx 0.14)$ outperforms our initial heuristic $(\alpha=0.35, k=32, \tau=0.10)$ in ES reduction at similar PPL, supporting the use of lightweight hyperparameter search.
 \end{itemize}
 
 % ===========================

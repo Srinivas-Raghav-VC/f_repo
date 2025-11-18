@@ -2202,6 +2202,7 @@ def parse():
     ap.add_argument("--ckpt_dir", type=str, default=".", help="Directory to read/write adapters and SAE weights")
     ap.add_argument("--actpert_audit", action="store_true", help="Run ActPert-style audit (small noise at chosen layers) and report ΔES")
     ap.add_argument("--actpert_amp", type=float, default=0.1, help="Gaussian noise std for ActPert audit")
+    ap.add_argument("--no_mia", action="store_true", help="Skip membership inference (MIA) metrics during evaluation")
     # Hyperparameter search
     ap.add_argument("--hparam_search", action="store_true", help="Run a lightweight hyperparameter search to tune gating/Rank/steps")
     ap.add_argument("--hparam_trials", type=int, default=8, help="Number of random trials for hyperparameter search")
@@ -3072,7 +3073,9 @@ def main():
                     pass
                 others=[l for l in probe_layers if l not in chosen] or probe_layers
                 probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
-                mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                mia = None
+                if not getattr(args, "no_mia", False):
+                    mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
                 # U-LiRA+ (per-example LR)
                 ulira = None
                 try:
@@ -3162,7 +3165,9 @@ def main():
                 es_mixed  = extraction_strength(gens_m, lid, target_code="hi", use_script_guard=True)
                 others=[l for l in probe_layers if l not in chosen] or probe_layers
                 probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
-                mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                mia = None
+                if not getattr(args, "no_mia", False):
+                    mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
                 xes={}
                 for lname,xt in xlang_sets:
                     xes[lname]=extraction_strength(generate_with_semantic_gating(model,tok,lid,xt[:120],device,gate), lid, target_code="hi", use_script_guard=True)
@@ -3213,7 +3218,9 @@ def main():
                 es_mixed  = extraction_strength(gens_m, lid, target_code="hi", use_script_guard=True)
                 others=[l for l in probe_layers if l not in chosen] or probe_layers
                 probes = probes_auc(base,tok,forget[:150],retain[:150],others,device)
-                mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+                mia = None
+                if not getattr(args, "no_mia", False):
+                    mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
                 xes={}
                 for lname,xt in xlang_sets:
                     xes[lname]=extraction_strength(generate(base,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
