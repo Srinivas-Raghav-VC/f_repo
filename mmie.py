@@ -2125,6 +2125,8 @@ class Args:
     dsg_threshold: float = 0.5
     # SAE feature picker (activation, semantic, grad)
     sae_feature_picker: str = 'grad'
+    # MIA control
+    no_mia: bool = False
 
 def parse():
     ap=argparse.ArgumentParser()
