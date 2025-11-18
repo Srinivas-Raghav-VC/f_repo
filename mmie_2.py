@@ -383,38 +383,22 @@ def _refine_layers_with_judge(model, tok, device, forget: List[str], retain: Lis
 def collect_layer_means(model,tok,texts,layers,device,max_len=256,cap=1000,per_token=True,tokens_per_seq=16):
     model.eval()
     acts={li:[] for li in layers}
-    try:
-        for batch in tqdm(chunked(texts[:cap], 8), desc="acts"):
-            enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=max_len)
-            enc=_to_model_device(model, enc)
-            
-            # Ensure forward pass runs in model's native precision
-            ctx = torch.nullcontext()
-            if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-                ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-            elif model.device.type == 'cuda':
-                ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-                
-            with ctx:
-                out=model(**enc, output_hidden_states=True)
-            for li in layers:
-                H = out.hidden_states[li+1]  # [B,T,D]
-                if per_token:
-                    B,T,D = H.shape
-                    tsel = min(tokens_per_seq, T)
-                    idx = torch.randint(0, T, (B, tsel), device=H.device)
-                    picked = H[torch.arange(B).unsqueeze(1), idx]  # [B,tsel,D]
-                    arr = picked.reshape(-1, D).detach().to(torch.float32).cpu().numpy()
-                    acts[li].append(arr)
-                else:
-                    arr = H.detach().mean(dim=1).to(torch.float32).cpu().numpy()
-                    acts[li].append(arr)
-    except torch.cuda.OutOfMemoryError:
-        print(f"[warn] OOM during layer mean collection at batch {len(acts[layers[0]])}. Stopping early.")
-        torch.cuda.empty_cache()
-    except Exception as e:
-        print(f"[warn] Error during layer mean collection: {e}")
-        
+    for batch in tqdm(chunked(texts[:cap], 8), desc="acts"):
+        enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=max_len)
+        enc=_to_model_device(model, enc)
+        out=model(**enc, output_hidden_states=True)
+        for li in layers:
+            H = out.hidden_states[li+1]  # [B,T,D]
+            if per_token:
+                B,T,D = H.shape
+                tsel = min(tokens_per_seq, T)
+                idx = torch.randint(0, T, (B, tsel), device=H.device)
+                picked = H[torch.arange(B).unsqueeze(1), idx]  # [B,tsel,D]
+                arr = picked.reshape(-1, D).detach().to(torch.float32).cpu().numpy()
+                acts[li].append(arr)
+            else:
+                arr = H.detach().mean(dim=1).to(torch.float32).cpu().numpy()
+                acts[li].append(arr)
     return {li:(np.concatenate(acts[li],0) if acts[li] else np.zeros((0,model.config.hidden_size), dtype=np.float32)) for li in layers}
 
 def _capture_mean_hidden(model, tok, text: str, layer: int, device: str, max_len: int = 128) -> Optional[torch.Tensor]:
@@ -422,16 +406,7 @@ def _capture_mean_hidden(model, tok, text: str, layer: int, device: str, max_len
     try:
         enc = tok([text], return_tensors='pt', padding=True, truncation=True, max_length=max_len)
         enc = _to_model_device(model, enc)
-        
-        # Ensure forward pass runs in model's native precision
-        ctx = torch.nullcontext()
-        if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-            ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-        elif model.device.type == 'cuda':
-            ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-            
-        with ctx:
-            out = model(**enc, output_hidden_states=True)
+        out = model(**enc, output_hidden_states=True)
         H = out.hidden_states[layer+1]  # [1,T,D]
         return H.mean(dim=1).squeeze(0).detach().to(torch.float32)
     except Exception:
@@ -642,7 +617,6 @@ class SAEGate:
         self.sae = sae_per_layer
         self.feature_idx = {li: torch.tensor(idx, dtype=torch.long) for li, idx in feature_idx.items()}
         self.alpha = float(alpha)
-        self.threshold = 0.0  # Default to 0 (always attenuate) unless set
         # Optional per-sequence alpha overrides for batched generation
         # Mapping: batch_index -> alpha in [0,1]
         self._per_seq_alpha: Dict[int, float] = {}
@@ -686,10 +660,7 @@ class SAEGate:
                             scale = (1.0 - alpha_bt).unsqueeze(1)      # [B*T,1]
                             z_edit[:, idx_local] = z_edit[:, idx_local] * scale
                         else:
-                            # DSG: Only attenuate if activation exceeds threshold
-                            val = z_edit[:, idx_local]
-                            mask = (val.abs() > self.threshold).float()
-                            z_edit[:, idx_local] = val * (1.0 - self.alpha * mask)
+                            z_edit[:, idx_local] *= (1.0 - self.alpha)
                     xhat = sae_module.D(z_edit)
                     delta = (xhat - x0).to(h.dtype)
                     h2 = (h + delta.reshape(B, T, D))
@@ -889,39 +860,7 @@ def train_sae(model,tok,texts,layer,device,steps=5000,bs=64,seq_len=256,lr=4e-4,
         reg = aux_coeff*z.abs().mean()
         if decorrel:
             reg = reg + decorrel_lambda * _decorrelation_loss(z)
-        
-        # Matryoshka Loss: Sum reconstruction losses for nested subsets of features
-        # e.g. k/4, k/2, k, 2k... up to full expansion
-        # We assume features are not strictly ordered by index in TopK, but we can simulate
-        # Matryoshka by enforcing the TopK selection on subsets of the encoder weights.
-        # However, standard Matryoshka SAEs usually just sum losses over nested d_sae groups.
-        # Here we implement a simplified version: sum losses for [m/8, m/4, m/2, m]
-        
-        m = sae.m
-        # Define nested groups (powers of 2 up to m)
-        groups = [m]
-        if m >= 32:
-            groups = [m//8, m//4, m//2, m]
-            groups = [g for g in groups if g >= sae.k] # Ensure group size >= k for TopK to make sense
-            if not groups: groups = [m]
-            
-        total_recon = 0.0
-        for g_size in groups:
-            # To simulate nested training, we mask the encoder output z to only use first g_size features
-            # But TopK selects top k globally. For Matryoshka, we should probably slice the weights?
-            # A simpler "Pseudo-Matryoshka" for TopK:
-            # 1. Compute z_full
-            # 2. For each group size g, mask z to keep only indices < g
-            # 3. Decode and compute loss
-            
-            # Mask z for indices >= g_size
-            mask_g = torch.zeros_like(z)
-            mask_g[:, :g_size] = 1.0
-            z_g = z * mask_g
-            xhat_g = sae.decode(z_g)
-            total_recon += F.mse_loss(xhat_g, x)
-            
-        loss = total_recon + reg
+        loss=F.mse_loss(xhat,x)+reg
         opt.zero_grad(); loss.backward(); opt.step()
         losses.append(loss.item())
         if len(losses)%500==0:
@@ -1347,14 +1286,7 @@ def npo_loss(model, ref_model, batch, beta: float = 0.1):
     """
     out_m = model(**{**batch, "labels": batch["input_ids"]})
     with torch.no_grad():
-        # Ensure ref_model runs in its native precision
-        ctx = torch.nullcontext()
-        if ref_model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-            ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-        elif ref_model.device.type == 'cuda':
-            ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-        with ctx:
-            out_r = ref_model(**{**batch, "labels": batch["input_ids"]})
+        out_r = ref_model(**{**batch, "labels": batch["input_ids"]})
     # delta ~ log P_model - log P_ref  (up to a negative constant factor)
     # losses are mean negative log-likelihoods; use difference with sign flipped
     delta = -(out_m.loss - out_r.loss)
@@ -1414,17 +1346,7 @@ def token_kl_to_base(model, base, batch):
     Useful to quantify retain distributional drift beyond PPL.
     """
     out_m = model(**batch)
-    # Ensure base model runs in its native precision (likely BF16) to avoid matmul dtype mismatch
-    # if inputs were upcast by the previous model call or dataloader.
-    ctx = torch.nullcontext()
-    if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-        ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-    elif base.device.type == 'cuda':
-        ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-    
-    with ctx:
-        out_b = base(**batch)
-    
+    out_b = base(**batch)
     p = F.log_softmax(out_m.logits, dim=-1)
     q = F.softmax(out_b.logits, dim=-1)
     return F.kl_div(p, q, reduction="batchmean")
@@ -1513,33 +1435,19 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
                 base=load_causal_lm(model.config._name_or_path, tok, device, hf_token, eval_mode=True)
                 for p in base.parameters():
                     p.requires_grad_(False)
-            with torch.no_grad():
-                # Ensure base model runs in its native precision
-                ctx = torch.nullcontext()
-                if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-                    ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-                elif base.device.type == 'cuda':
-                    ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-                with ctx:
-                    base_logits=base(**b).logits.detach()
+            with torch.no_grad(): base_logits=base(**b).logits.detach()
             loss=kl_to_base(model,base_logits,b)
             is_forget=False
         if dual_optimizer:
             opt_forget.zero_grad(); opt_retain.zero_grad()
         else:
             opt.zero_grad()
-        loss = loss / gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        if (step + 1) % gradient_accumulation_steps == 0:
-            if dual_optimizer:
-                (opt_forget if is_forget else opt_retain).step()
-            else:
-                opt.step()
-            if dual_optimizer:
-                opt_forget.zero_grad(); opt_retain.zero_grad()
-            else:
-                opt.zero_grad()
+        if dual_optimizer:
+            (opt_forget if is_forget else opt_retain).step()
+        else:
+            opt.step()
         # Early stopping on retain step loss (proxy)
         if early_stop_patience>0 and not is_forget:
             cur=float(loss.detach().cpu())
@@ -1569,10 +1477,7 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
                     torch.cuda.empty_cache()
             except Exception:
                 pass
-    model.eval()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    return model
+    model.eval(); return model
 
 def resume_lora(model, tok, device, ckpt_dir: str = ".", rank: int = 8):
     try:
@@ -1644,22 +1549,13 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
             is_forget=True
         else:
             b=next(itr)
-            with torch.no_grad():
-                # Ensure base model runs in its native precision
-                ctx = torch.nullcontext()
-                if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-                    ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-                elif base.device.type == 'cuda':
-                    ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-                with ctx:
-                    base_logits=base(**b).logits.detach()
+            with torch.no_grad(): base_logits=base(**b).logits.detach()
             loss=kl_to_base(model,base_logits,b)
             is_forget=False
         if dual_optimizer:
             opt_forget.zero_grad(); opt_retain.zero_grad()
         else:
             opt.zero_grad()
-        loss = loss / gradient_accumulation_steps
         loss.backward()
         # Optional L1 penalty on gate logits to encourage small gates
         if reft_gated:
@@ -1671,15 +1567,10 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
             except Exception:
                 pass
         torch.nn.utils.clip_grad_norm_(adapters.parameters(), grad_clip)
-        if (step + 1) % gradient_accumulation_steps == 0:
-            if dual_optimizer:
-                (opt_forget if is_forget else opt_retain).step()
-            else:
-                opt.step()
-            if dual_optimizer:
-                opt_forget.zero_grad(); opt_retain.zero_grad()
-            else:
-                opt.zero_grad()
+        if dual_optimizer:
+            (opt_forget if is_forget else opt_retain).step()
+        else:
+            opt.step()
         if early_stop_patience>0 and not is_forget:
             cur=float(loss.detach().cpu())
             if cur < best_loss * 0.99:
@@ -1705,10 +1596,7 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
                 torch.cuda.empty_cache()
         except Exception:
             pass
-    model.eval()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    return model
+    model.eval(); return model
 
 def train_reft_with_pyreft(model, tok, layers, forget, retain, device, rank=4, steps=400, use_grun: bool = True):
     """Train ReFT using PyReFT (if installed). Returns the modified model or None on failure.
@@ -1768,43 +1656,15 @@ def train_reft_with_pyreft(model, tok, layers, forget, retain, device, rank=4, s
 def generate(model,tok,prompts,device,max_new_tokens=64):
     out=[]
     for batch in chunked(prompts,8):
-        # Apply chat template if model expects it and input is raw text
-        if hasattr(tok, 'apply_chat_template') and tok.chat_template:
-            try:
-                # Check if first item is already a list of dicts (chat format)
-                if isinstance(batch[0], str):
-                    # Wrap raw strings in user message
-                    batch_formatted = [[{"role": "user", "content": p}] for p in batch]
-                    batch_text = [tok.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in batch_formatted]
-                else:
-                    # Assume already chat format
-                    batch_text = [tok.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in batch]
-            except Exception:
-                # Fallback to raw text
-                batch_text = batch
-        else:
-            batch_text = batch
-
-        enc=tok(batch_text, return_tensors='pt',padding=True,truncation=True,max_length=256)
+        enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=256)
         enc=_to_model_device(model, enc)
-        
-        # Ensure generation runs in model's native precision
-        ctx = torch.nullcontext()
-        if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-            ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-        elif model.device.type == 'cuda':
-            ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-            
-        with ctx:
-            ids=model.generate(
-                **enc,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=tok.pad_token_id,
-                eos_token_id=tok.eos_token_id,
-            )
+        ids=model.generate(
+            **enc,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tok.pad_token_id,
+            eos_token_id=tok.eos_token_id,
+        )
         # Decode only newly generated tokens, excluding the prompt
         prefix_len = enc["input_ids"].shape[1]
         gen_ids = ids[:, prefix_len:]
@@ -2252,7 +2112,6 @@ class Args:
     dual_optimizer: bool = False
     lr_forget: float = 0.0
     lr_retain: float = 0.0
-    gradient_accumulation_steps: int = 1
     # One-shot orchestrator
     auto: bool = False
     auto_plots: bool = False
@@ -2289,7 +2148,7 @@ def parse():
     ap.add_argument("--select_top_k", type=int, default=3, help="Number of layers to select for edits")
     ap.add_argument("--min_layer", type=int, default=2, help="Exclude layers below this index from selection (avoid early lexical layers)")
     ap.add_argument("--print_layer_scores", action="store_true", default=True, help="Print CKA/Procrustes/Cos/ANC per layer and chosen set (default on)")
-    ap.add_argument("--select_mode", choices=["contrast","similarity","semantic"], default="semantic", help="Layer selection mode: contrast (divergence), similarity (alignment/Middle Layer Hypothesis), or semantic (default)")
+    ap.add_argument("--select_mode", choices=["contrast","similarity","semantic"], default="semantic", help="Layer selection mode: contrast (prefer divergence), similarity, or semantic (Hindi-vs-English specificity vs neighbors)")
     ap.add_argument("--script_blind_selection", dest="script_blind_selection", action="store_true", help="Romanize Devanagari to make selection script-blind")
     ap.add_argument("--no_script_blind_selection", dest="script_blind_selection", action="store_false")
     ap.set_defaults(script_blind_selection=True)
@@ -2493,14 +2352,6 @@ def main():
     args=parse()
     device=args.device
     hf_token=os.environ.get("HF_TOKEN")
-    
-    # System Check
-    if torch.cuda.is_available():
-        mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-        print(f"[system] GPU: {torch.cuda.get_device_name(0)} ({mem:.1f} GB)")
-        if mem < 10:
-            print("[warn] GPU memory < 10GB. OOM risks high. Suggest --no_quantization or reducing batch size.")
-    
     # Honor no-quantization flag by disabling auto quant paths
     if bool(getattr(args, 'no_quantization', False)):
         os.environ['DISABLE_AUTO_QUANT'] = '1'
@@ -3138,8 +2989,7 @@ def main():
                              use_cosine_lr=bool(getattr(args,'use_cosine_lr', True)), early_stop_patience=int(getattr(args,'early_stop_patience',0)),
                              forget_reweight=bool(getattr(args,'forget_reweight', False)), bounded_forget_bound=float(getattr(args,'bounded_forget_bound', 10.0)),
                              use_curriculum=bool(getattr(args,'use_curriculum', False)), curriculum_stages=tuple(getattr(args,'curriculum_stages', (0.33,0.66))),
-                             dual_optimizer=bool(getattr(args,'dual_optimizer', False)), lr_forget=(args.lr_forget or None), lr_retain=(args.lr_retain or None),
-                             gradient_accumulation_steps=int(getattr(args,'gradient_accumulation_steps', 1)))
+                             dual_optimizer=bool(getattr(args,'dual_optimizer', False)), lr_forget=(args.lr_forget or None), lr_retain=(args.lr_retain or None))
         else:
             lora=resume_lora(lora,tok,device, ckpt_dir=args.ckpt_dir, rank=args.rank)
 
@@ -3163,8 +3013,7 @@ def main():
                                  use_cosine_lr=bool(getattr(args,'use_cosine_lr', True)), early_stop_patience=int(getattr(args,'early_stop_patience',0)),
                                  forget_reweight=bool(getattr(args,'forget_reweight', False)), bounded_forget_bound=float(getattr(args,'bounded_forget_bound', 10.0)),
                                  use_curriculum=bool(getattr(args,'use_curriculum', False)), curriculum_stages=tuple(getattr(args,'curriculum_stages', (0.33,0.66))),
-                                 dual_optimizer=bool(getattr(args,'dual_optimizer', False)), lr_forget=(args.lr_forget or None), lr_retain=(args.lr_retain or None),
-                                 gradient_accumulation_steps=int(getattr(args,'gradient_accumulation_steps', 1)))
+                                 dual_optimizer=bool(getattr(args,'dual_optimizer', False)), lr_forget=(args.lr_forget or None), lr_retain=(args.lr_retain or None))
         else:
             apply_reft_from_file(reft, chosen, os.path.join(args.ckpt_dir, "reft_adapters.pt"), rank=args.rank, sign=(-1.0 if bool(getattr(args,'reft_negative', False)) else 1.0), gated=bool(getattr(args,'reft_gated', False)))
 
@@ -3175,7 +3024,6 @@ def main():
                 if args.sae_gate and sae_modules:
                     try:
                         gate = SAEGate(model, chosen, sae_modules, sae_gate_features, alpha=args.sae_gate_alpha)
-                        gate.threshold = float(getattr(args, 'dsg_threshold', 0.0)) if getattr(args, 'dsg', False) else 0.0
                     except Exception as e:
                         print(f"[sae-gate] attach failed: {e}")
                 if args.script_scrub:
@@ -3312,7 +3160,6 @@ def main():
                 name = "dsg"
                 model = base
                 gate = SAEGate(model, chosen, sae_modules, sae_gate_features, alpha=args.sae_gate_alpha)
-                gate.threshold = float(getattr(args, 'dsg_threshold', 0.5))
                 gens_f = generate_with_semantic_gating(model,tok,lid,forget[:200],device,gate,base_alpha=max(0.0, args.sae_gate_alpha-0.2),high_alpha=min(1.0, args.sae_gate_alpha+0.2))
                 es_forget = extraction_strength(gens_f, lid, target_code="hi", use_script_guard=True)
                 ppl_retain = perplexity(model,tok,retain[:200],device)
