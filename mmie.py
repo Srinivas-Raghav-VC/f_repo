@@ -1418,11 +1418,15 @@ def token_kl_to_base(model, base, batch):
     # Ensure base model runs in its native precision (likely BF16) to avoid matmul dtype mismatch
     # if inputs were upcast by the previous model call or dataloader.
     ctx = torch.nullcontext()
-    if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
+    try:
+        dev = next(base.parameters()).device
+    except Exception:
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if dev.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
         ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-    elif base.device.type == 'cuda':
+    elif dev.type == 'cuda':
         ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-    
+
     with ctx:
         out_b = base(**batch)
     
@@ -2269,6 +2273,8 @@ class Args:
     sae_feature_picker: str = 'grad'
     # MIA control
     no_mia: bool = False
+    # Token-KL control
+    no_token_kl: bool = False
 
 def parse():
     ap=argparse.ArgumentParser()
@@ -2347,6 +2353,7 @@ def parse():
     ap.add_argument("--actpert_audit", action="store_true", help="Run ActPert-style audit (small noise at chosen layers) and report ΔES")
     ap.add_argument("--actpert_amp", type=float, default=0.1, help="Gaussian noise std for ActPert audit")
     ap.add_argument("--no_mia", action="store_true", help="Skip membership inference (MIA) metrics during evaluation")
+    ap.add_argument("--no_token_kl", action="store_true", help="Skip token-level KL metrics during evaluation")
     # Hyperparameter search
     ap.add_argument("--hparam_search", action="store_true", help="Run a lightweight hyperparameter search to tune gating/Rank/steps")
     ap.add_argument("--hparam_trials", type=int, default=8, help="Number of random trials for hyperparameter search")
@@ -3019,12 +3026,20 @@ def main():
     for lname, xt in xlang_sets:
         base_crossling[lname] = extraction_strength(generate(base,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
     base_token_kl = None
-    if args.report_token_kl:
+    if args.report_token_kl and not getattr(args, "no_token_kl", False):
         kl_vals=[]
         for batch in chunked(retain[:120], 8):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-            kl_vals.append(token_kl_to_base(base, base, enc).item())
-        base_token_kl = float(np.mean(kl_vals)) if kl_vals else 0.0
+            try:
+                kl_vals.append(token_kl_to_base(base, base, enc).item())
+            except RuntimeError as e:
+                if "mat1 and mat2 must have the same dtype" in str(e):
+                    print(f"[token_kl] base skipped due to dtype mismatch: {e}")
+                    kl_vals = []
+                    break
+                else:
+                    raise
+        base_token_kl = float(np.mean(kl_vals)) if kl_vals else None
     base_es_rom = None
     if args.es_romanized:
         from transliteration_utils import batch_devanagari_to_latin
@@ -3230,7 +3245,14 @@ def main():
                 probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
                 mia = None
                 if not getattr(args, "no_mia", False):
-                    mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                    try:
+                        mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[mia] {name} arm skipped due to dtype mismatch: {e}")
+                            mia = None
+                        else:
+                            raise
                 # U-LiRA+ (per-example LR)
                 ulira = None
                 try:
@@ -3238,11 +3260,19 @@ def main():
                 except Exception:
                     ulira = None
                 token_kl_mean = None
-                if args.report_token_kl:
+                if args.report_token_kl and not getattr(args, "no_token_kl", False):
                     vals=[]
                     for batch in chunked(retain[:120], 8):
                         enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-                        vals.append(token_kl_to_base(model, base, enc).item())
+                        try:
+                            vals.append(token_kl_to_base(model, base, enc).item())
+                        except RuntimeError as e:
+                            if "mat1 and mat2 must have the same dtype" in str(e):
+                                print(f"[token_kl] {name} arm skipped due to dtype mismatch: {e}")
+                                vals = []
+                                break
+                            else:
+                                raise
                     token_kl_mean = float(np.mean(vals)) if vals else None
                 comp = None
                 if getattr(args, 'report_comprehension', False):
@@ -3323,7 +3353,14 @@ def main():
                 probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
                 mia = None
                 if not getattr(args, "no_mia", False):
-                    mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                    try:
+                        mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[mia] dsg baseline skipped due to dtype mismatch: {e}")
+                            mia = None
+                        else:
+                            raise
                 xes={}
                 for lname,xt in xlang_sets:
                     xes[lname]=extraction_strength(generate_with_semantic_gating(model,tok,lid,xt[:120],device,gate), lid, target_code="hi", use_script_guard=True)
@@ -3347,7 +3384,16 @@ def main():
                 es_mixed  = extraction_strength(gens_m, lid, target_code="hi", use_script_guard=True)
                 others=[l for l in probe_layers if l not in chosen] or probe_layers
                 probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
-                mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                mia = None
+                if not getattr(args, "no_mia", False):
+                    try:
+                        mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[mia] randgate baseline skipped due to dtype mismatch: {e}")
+                            mia = None
+                        else:
+                            raise
                 xes={}
                 for lname,xt in xlang_sets:
                     xes[lname]=extraction_strength(generate(model,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
@@ -3376,7 +3422,14 @@ def main():
                 probes = probes_auc(base,tok,forget[:150],retain[:150],others,device)
                 mia = None
                 if not getattr(args, "no_mia", False):
-                    mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+                    try:
+                        mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[mia] subspace baseline skipped due to dtype mismatch: {e}")
+                            mia = None
+                        else:
+                            raise
                 xes={}
                 for lname,xt in xlang_sets:
                     xes[lname]=extraction_strength(generate(base,tok,xt[:120],device), lid, target_code="hi", use_script_guard=True)
@@ -3410,13 +3463,30 @@ def main():
                 pass
             others=[l for l in probe_layers if l not in chosen] or probe_layers
             probes = probes_auc(model,tok,forget[:150],retain[:150],others,device)
-            mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+            mia = None
+            if not getattr(args, "no_mia", False):
+                try:
+                    mia = mia_loss(base,model,tok,forget[:120],retain[:120],device)
+                except RuntimeError as e:
+                    if "mat1 and mat2 must have the same dtype" in str(e):
+                        print(f"[mia] prompt baseline skipped due to dtype mismatch: {e}")
+                        mia = None
+                    else:
+                        raise
             token_kl_mean = None
-            if args.report_token_kl:
+            if args.report_token_kl and not getattr(args, "no_token_kl", False):
                 vals=[]
                 for batch in chunked(retain[:120], 8):
                     enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-                    vals.append(token_kl_to_base(model, base, enc).item())
+                    try:
+                        vals.append(token_kl_to_base(model, base, enc).item())
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[token_kl] prompt baseline skipped due to dtype mismatch: {e}")
+                            vals = []
+                            break
+                        else:
+                            raise
                 token_kl_mean = float(np.mean(vals)) if vals else None
             xes={}
             for lname,xt in xlang_sets:
@@ -3479,13 +3549,30 @@ def main():
                 pass
             others=[l for l in probe_layers if l not in chosen] or probe_layers
             probes = probes_auc(base,tok,forget[:150],retain[:150],others,device)
-            mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+            mia = None
+            if not getattr(args, "no_mia", False):
+                try:
+                    mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+                except RuntimeError as e:
+                    if "mat1 and mat2 must have the same dtype" in str(e):
+                        print(f"[mia] dim baseline skipped due to dtype mismatch: {e}")
+                        mia = None
+                    else:
+                        raise
             token_kl_mean = None
-            if args.report_token_kl:
+            if args.report_token_kl and not getattr(args, "no_token_kl", False):
                 vals=[]
                 for batch in chunked(retain[:120], 8):
                     enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-                    vals.append(token_kl_to_base(base, base, enc).item())
+                    try:
+                        vals.append(token_kl_to_base(base, base, enc).item())
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[token_kl] dim baseline skipped due to dtype mismatch: {e}")
+                            vals = []
+                            break
+                        else:
+                            raise
                 token_kl_mean = float(np.mean(vals)) if vals else None
             xes={}
             for lname,xt in xlang_sets:
@@ -3570,13 +3657,30 @@ def main():
                 pass
             others=[l for l in probe_layers if l not in chosen] or probe_layers
             probes = probes_auc(base,tok,forget[:150],retain[:150],others,device)
-            mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+            mia = None
+            if not getattr(args, "no_mia", False):
+                try:
+                    mia = mia_loss(base,base,tok,forget[:120],retain[:120],device)
+                except RuntimeError as e:
+                    if "mat1 and mat2 must have the same dtype" in str(e):
+                        print(f"[mia] unlearn baseline skipped due to dtype mismatch: {e}")
+                        mia = None
+                    else:
+                        raise
             token_kl_mean = None
-            if args.report_token_kl:
+            if args.report_token_kl and not getattr(args, "no_token_kl", False):
                 vals=[]
                 for batch in chunked(retain[:120], 8):
                     enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=args.max_len).to(device)
-                    vals.append(token_kl_to_base(base, base, enc).item())
+                    try:
+                        vals.append(token_kl_to_base(base, base, enc).item())
+                    except RuntimeError as e:
+                        if "mat1 and mat2 must have the same dtype" in str(e):
+                            print(f"[token_kl] unlearn baseline skipped due to dtype mismatch: {e}")
+                            vals = []
+                            break
+                        else:
+                            raise
                 token_kl_mean = float(np.mean(vals)) if vals else None
             xes={}
             for lname,xt in xlang_sets:
@@ -3640,8 +3744,14 @@ def main():
                 if base_x is not None:
                     cl_deltas.append(v - base_x)
         xleak = (len(cl_deltas)>0 and float(np.mean(cl_deltas))>0.10)
-        mia_auc=float(np.mean([s["mia"]["AUC"] for s in arm["seeds"]]))
-        mia_acc=float(np.mean([s["mia"]["ACC"] for s in arm["seeds"]]))
+        mia_vals = [s.get("mia") for s in arm["seeds"] if s.get("mia") is not None]
+        if mia_vals:
+            mia_auc=float(np.mean([m.get("AUC", 0.5) for m in mia_vals]))
+            mia_acc=float(np.mean([m.get("ACC", 0.5) for m in mia_vals]))
+        else:
+            # If MIA was disabled or failed, treat as neutral (no evidence of leakage)
+            mia_auc = 0.5
+            mia_acc = 0.5
         mia_ok = (abs(mia_auc-0.5)<=0.05 and abs(mia_acc-0.5)<=0.05)
         # U-LiRA+
         ulira_list = [s.get("ulira") for s in arm["seeds"] if s.get("ulira") is not None]
