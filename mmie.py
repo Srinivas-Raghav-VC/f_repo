@@ -2,7 +2,7 @@
 # MMIE end-to-end: LoRA vs ReFT+SAE; ES via LID ensemble; PPL; Mixed; Probes; MIA; X-ling leakage
 # Checkpointing: LoRA -> lora_adapters.pt ; ReFT -> reft_adapters.pt ; SAE -> sae_layer{L}.pt
 
-import os, json, argparse, math, random, itertools
+import os, json, argparse, math, random, itertools, contextlib
 from collections import Counter
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
@@ -389,7 +389,7 @@ def collect_layer_means(model,tok,texts,layers,device,max_len=256,cap=1000,per_t
             enc=_to_model_device(model, enc)
             
             # Ensure forward pass runs in model's native precision
-            ctx = torch.nullcontext()
+            ctx = contextlib.nullcontext()
             if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
                 ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
             elif model.device.type == 'cuda':
@@ -424,7 +424,7 @@ def _capture_mean_hidden(model, tok, text: str, layer: int, device: str, max_len
         enc = _to_model_device(model, enc)
         
         # Ensure forward pass runs in model's native precision
-        ctx = torch.nullcontext()
+        ctx = contextlib.nullcontext()
         if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
             ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
         elif model.device.type == 'cuda':
@@ -959,7 +959,8 @@ def train_sae_via_sae_lens(model, model_id: str, layer: int, device: str, *,
             return None
         cfg = LanguageModelSAERunnerConfig(
             model_name=model_id,
-            hook_point=f"model.layers.{layer}",
+            hook_name=f"blocks.{layer}.hook_resid_pre",  # Updated from hook_point
+            hook_layer=layer,
             d_in=d_in,
             d_sae=int(expansion * d_in),
             architecture=arch,
@@ -1348,7 +1349,7 @@ def npo_loss(model, ref_model, batch, beta: float = 0.1):
     out_m = model(**{**batch, "labels": batch["input_ids"]})
     with torch.no_grad():
         # Ensure ref_model runs in its native precision
-        ctx = torch.nullcontext()
+        ctx = contextlib.nullcontext()
         if ref_model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
             ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
         elif ref_model.device.type == 'cuda':
@@ -1515,7 +1516,7 @@ def train_lora(model,tok,forget,retain,device,steps=500,bs=16,max_len=256,lr=2e-
                     p.requires_grad_(False)
             with torch.no_grad():
                 # Ensure base model runs in its native precision
-                ctx = torch.nullcontext()
+                ctx = contextlib.nullcontext()
                 if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
                     ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
                 elif base.device.type == 'cuda':
@@ -1646,7 +1647,7 @@ def train_reft(model,tok,layers,forget,retain,device,rank=4,steps=500,bs=16,max_
             b=next(itr)
             with torch.no_grad():
                 # Ensure base model runs in its native precision
-                ctx = torch.nullcontext()
+                ctx = contextlib.nullcontext()
                 if base.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
                     ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
                 elif base.device.type == 'cuda':
@@ -1789,7 +1790,7 @@ def generate(model,tok,prompts,device,max_new_tokens=64):
         enc=_to_model_device(model, enc)
         
         # Ensure generation runs in model's native precision
-        ctx = torch.nullcontext()
+        ctx = contextlib.nullcontext()
         if model.device.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
             ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
         elif model.device.type == 'cuda':
