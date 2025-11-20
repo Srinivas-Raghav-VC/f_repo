@@ -1071,11 +1071,12 @@ def pick_sae_features_forget_vs_retain(sae: TopKSAE, model, tok, forget: List[st
         for batch in chunked(texts[:cap_each], bs):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=max_len)
             enc=_to_model_device(model, enc)
-            out=model(**enc, output_hidden_states=True)
+            with _autocast_ctx(model):
+                out=model(**enc, output_hidden_states=True)
             H=out.hidden_states[layer+1]  # [B,T,D]
             X=H.mean(dim=1).to(torch.float32)  # [B,D]
             Z=sae.E(X)  # [B,m]
-            vals.append(Z.abs().mean(dim=0).detach().cpu().numpy())
+            vals.append(Z.abs().mean(dim=0).detach().to(torch.float32).cpu().numpy())
             count += len(batch)
             if count >= cap_each: break
         return np.mean(vals, axis=0) if vals else np.zeros((sae.E.weight.shape[0],), dtype=np.float32)
@@ -1090,9 +1091,9 @@ def pick_sae_features_forget_vs_retain(sae: TopKSAE, model, tok, forget: List[st
 def pick_semantic_sae_features(sae: TopKSAE, model, tok,
                                hindi_deva: List[str], hindi_roman: List[str], deva_gib: List[str],
                                layer: int, device: str, max_len=256, bs=32, cap_each=256, topk=64, tau: float = 0.0) -> List[int]:
-    """Pick SAE features that are invariant to script and insensitive to script-only noise.
+    """Pick SAE features invariant to script and insensitive to script-only noise.
     Score(f) = min(|z| on Hindi-Devanagari, |z| on Hindi-Roman) - |z| on Devanagari-gibberish.
-    Keep top-K with score > tau.
+    Keep top-K with score > tau. Uses autocast matching the model's dtype to avoid BF16/FP32 issues.
     """
     def collect(texts):
         vals = []
@@ -1100,11 +1101,13 @@ def pick_semantic_sae_features(sae: TopKSAE, model, tok,
         for batch in chunked(texts[:cap_each], bs):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=max_len)
             enc=_to_model_device(model, enc)
-            out=model(**enc, output_hidden_states=True)
+            # Match model dtype for forward, then cast to float32 for scoring
+            with _autocast_ctx(model):
+                out=model(**enc, output_hidden_states=True)
             H=out.hidden_states[layer+1]
             X=H.mean(dim=1).to(torch.float32)
             Z=sae.E(X)
-            vals.append(Z.abs().mean(dim=0).detach().cpu().numpy())
+            vals.append(Z.abs().mean(dim=0).detach().to(torch.float32).cpu().numpy())
             count += len(batch)
             if count >= cap_each: break
         if not vals:
