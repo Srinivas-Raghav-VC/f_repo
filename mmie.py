@@ -1410,27 +1410,27 @@ def _curriculum_weights(model, tok, texts, device, max_len: int, step: int, tota
     w = w / (w.sum() + 1e-8)
     return w
 
+def _autocast_ctx(model):
+    """Pick an autocast context that matches the model's parameter dtype."""
+    try:
+        p = next(model.parameters())
+        dev, dt = p.device, p.dtype
+    except Exception:
+        return torch.nullcontext()
+    if dev.type == 'cuda':
+        if dt == torch.bfloat16:
+            return torch.autocast(device_type='cuda', dtype=torch.bfloat16)
+        if dt == torch.float16:
+            return torch.autocast(device_type='cuda', dtype=torch.float16)
+    return torch.nullcontext()
+
 @torch.no_grad()
 def token_kl_to_base(model, base, batch):
-    """Average token-level KL(P_model || P_base) for a batch.
-    Useful to quantify retain distributional drift beyond PPL.
-    """
-    out_m = model(**batch)
-    # Ensure base model runs in its native precision (likely BF16) to avoid matmul dtype mismatch
-    # if inputs were upcast by the previous model call or dataloader.
-    ctx = torch.nullcontext()
-    try:
-        dev = next(base.parameters()).device
-    except Exception:
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if dev.type == 'cuda' and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported():
-        ctx = torch.autocast(device_type='cuda', dtype=torch.bfloat16)
-    elif dev.type == 'cuda':
-        ctx = torch.autocast(device_type='cuda', dtype=torch.float16)
-
-    with ctx:
+    """Average token-level KL(P_model || P_base) for a batch, dtype-safe."""
+    with _autocast_ctx(model):
+        out_m = model(**batch)
+    with _autocast_ctx(base):
         out_b = base(**batch)
-    
     p = F.log_softmax(out_m.logits, dim=-1)
     q = F.softmax(out_b.logits, dim=-1)
     return F.kl_div(p, q, reduction="batchmean")
@@ -2150,7 +2150,8 @@ def mia_loss(base,edited,tok,forget,nonmember,device):
         L=[]
         for batch in chunked(texts,8):
             enc=tok(batch, return_tensors='pt',padding=True,truncation=True,max_length=256).to(device)
-            out=m(**enc, labels=enc["input_ids"])
+            with _autocast_ctx(m):
+                out=m(**enc, labels=enc["input_ids"])
             L.append(float(out.loss.detach().cpu()))
         return np.array(L, dtype=np.float32)
     Lb_f=losses(base,forget); Le_f=losses(edited,forget)
@@ -2173,7 +2174,8 @@ def ulira_attack(base, edited, tok, forget, nonmember, device, max_len: int = 25
         L=[]
         for t in texts:
             enc=tok([t], return_tensors='pt',padding=True,truncation=True,max_length=max_len).to(device)
-            out=m(**enc, labels=enc["input_ids"])
+            with _autocast_ctx(m):
+                out=m(**enc, labels=enc["input_ids"])
             L.append(float(out.loss.detach().cpu()))
         return np.array(L, dtype=np.float32)
     Lb_f=losses(base,forget); Le_f=losses(edited,forget)
