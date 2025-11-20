@@ -671,6 +671,9 @@ class SAEGate:
                         sae_mod = sae_mod.to(device=h.device)
                         self.sae[i] = sae_mod
                     idx_local = idx_tensor.to(h.device) if idx_tensor.device != h.device else idx_tensor
+                    # Work in float32 inside the SAE, but be careful to
+                    # cast any edits back to the SAE latent dtype before
+                    # in-place index updates to avoid dtype mismatches.
                     x = h.reshape(-1, D).to(torch.float32)
                     z0 = sae_mod.E(x)  # [B*T, m]
                     x0 = sae_mod.D(z0)  # baseline recon
@@ -685,12 +688,16 @@ class SAEGate:
                                     alpha_vec[int(bi)] = float(max(0.0, min(1.0, aval)))
                             alpha_bt = alpha_vec.repeat_interleave(T)  # [B*T]
                             scale = (1.0 - alpha_bt).unsqueeze(1)      # [B*T,1]
+                            # Ensure scale matches latent dtype for safe index_put
+                            scale = scale.to(z_edit.dtype)
                             z_edit[:, idx_local] = z_edit[:, idx_local] * scale
                         else:
                             # DSG: Only attenuate if activation exceeds threshold
                             val = z_edit[:, idx_local]
-                            mask = (val.abs() > self.threshold).float()
-                            z_edit[:, idx_local] = val * (1.0 - self.alpha * mask)
+                            # Build mask and scale in the same dtype as the latents
+                            mask = (val.abs() > self.threshold).to(val.dtype)
+                            scale = (1.0 - self.alpha * mask).to(val.dtype)
+                            z_edit[:, idx_local] = val * scale
                     xhat = sae_mod.D(z_edit)
                     delta = (xhat - x0).to(h.dtype)
                     h2 = (h + delta.reshape(B, T, D))
