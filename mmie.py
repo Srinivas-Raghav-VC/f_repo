@@ -884,7 +884,16 @@ def train_sae(model,tok,texts,layer,device,steps=5000,bs=64,seq_len=256,lr=4e-4,
     losses=[]
     pbar=tqdm(range(steps),desc=f"SAE-L{layer}")
     for _ in pbar:
-        x=next(it).to(device).to(torch.float32)
+        try:
+            x=next(it).to(device).to(torch.float32)
+        except RuntimeError as e:
+            # Guard against rare NVML / allocator internal asserts on some MIG setups
+            msg = str(e)
+            if "CUDACachingAllocator" in msg or "NVML_SUCCESS" in msg:
+                print(f"[sae] NVML/CUDA allocator error at layer {layer}; stopping SAE training early: {e}")
+                torch.cuda.empty_cache()
+                break
+            raise
         sae.train()
         xhat,z=sae(x)
         reg = aux_coeff*z.abs().mean()
@@ -927,7 +936,12 @@ def train_sae(model,tok,texts,layer,device,steps=5000,bs=64,seq_len=256,lr=4e-4,
         losses.append(loss.item())
         if len(losses)%500==0:
             pbar.set_postfix(loss=np.mean(losses[-500:]))
-    return sae, {"loss":float(np.mean(losses[-min(500,len(losses)):]))}
+    # Robust loss summary even if we bailed out early
+    if losses:
+        avg_loss = float(np.mean(losses[-min(500,len(losses)):]))
+    else:
+        avg_loss = float("nan")
+    return sae, {"loss": avg_loss}
 
 def train_sae_via_sae_lens(model, model_id: str, layer: int, device: str, *,
                            arch: str = 'matryoshka-topk', k: int = 32, expansion: int = 16,
@@ -2530,9 +2544,22 @@ def main():
         # Judge assist if available
         if os.environ.get('GEMINI_API_KEY') and not args.judge_assist_selection:
             args.judge_assist_selection = True
-        # Hyperparam search
-        args.hparam_search = True
-        args.hparam_trials = max(8, int(getattr(args,'hparam_trials', 8)))
+        # Hyperparam search: default OFF in auto for stability.
+        # We instead use fixed, previously tuned defaults for gating and rank.
+        # Users can still enable --hparam_search explicitly if desired.
+        if getattr(args, 'hparam_search', False):
+            args.hparam_trials = max(8, int(getattr(args,'hparam_trials', 8)))
+        else:
+            args.hparam_search = False
+            # Use empirically good defaults from prior runs
+            if float(getattr(args, 'sae_gate_alpha', 0.35)) == 0.35:
+                args.sae_gate_alpha = 0.44
+            if int(getattr(args, 'sae_gate_topk', 32)) == 32:
+                args.sae_gate_topk = 16
+            if float(getattr(args, 'semantic_tau', 0.10)) == 0.10:
+                args.semantic_tau = 0.14
+            if int(getattr(args, 'rank', 8)) == 8:
+                args.rank = 4
         # SAE backend default to SAELens if installed
         if args.sae_backend == 'custom':
             args.sae_backend = 'sae_lens'
