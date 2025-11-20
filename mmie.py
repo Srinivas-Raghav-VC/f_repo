@@ -665,14 +665,15 @@ class SAEGate:
                     h = out[0] if isinstance(out, tuple) else out  # [B,T,D]
                     B,T,D = h.shape
                     # Ensure SAE and index tensor are on the same device as this layer's output
-                    if sae_module.E.weight.device != h.device:
+                    sae_mod = sae_module
+                    if sae_mod.E.weight.device != h.device:
                         # Move and keep reference consistent for subsequent calls
-                        sae_module = sae_module.to(device=h.device)
-                        self.sae[i] = sae_module
+                        sae_mod = sae_mod.to(device=h.device)
+                        self.sae[i] = sae_mod
                     idx_local = idx_tensor.to(h.device) if idx_tensor.device != h.device else idx_tensor
                     x = h.reshape(-1, D).to(torch.float32)
-                    z0 = sae_module.E(x)  # [B*T, m]
-                    x0 = sae_module.D(z0)  # baseline recon
+                    z0 = sae_mod.E(x)  # [B*T, m]
+                    x0 = sae_mod.D(z0)  # baseline recon
                     z_edit = z0.clone()
                     if idx_local.numel()>0:
                         # Apply either global alpha or per-sequence alpha if provided
@@ -690,7 +691,7 @@ class SAEGate:
                             val = z_edit[:, idx_local]
                             mask = (val.abs() > self.threshold).float()
                             z_edit[:, idx_local] = val * (1.0 - self.alpha * mask)
-                    xhat = sae_module.D(z_edit)
+                    xhat = sae_mod.D(z_edit)
                     delta = (xhat - x0).to(h.dtype)
                     h2 = (h + delta.reshape(B, T, D))
                     return (h2, *out[1:]) if isinstance(out, tuple) else h2
