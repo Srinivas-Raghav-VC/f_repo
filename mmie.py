@@ -1258,6 +1258,9 @@ def ensure_generation_padding(model, tok):
         if getattr(gen_cfg, "eos_token_id", None) in (None, -1): gen_cfg.eos_token_id = eos_id
 
 def load_causal_lm(model_id: str, tok, device: str, hf_token=None, eval_mode=False):
+    # Mitigate rare CUDA allocator/NVML asserts on some MIG A100 setups
+    if device.startswith("cuda") and torch.cuda.is_available() and not os.environ.get('PYTORCH_CUDA_ALLOC_CONF'):
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:256'
     cfg = AutoConfig.from_pretrained(model_id, token=hf_token)
     on_cuda = (device.startswith("cuda") and torch.cuda.is_available())
     # Prefer BF16 on A100/Ampere where available; otherwise FP16 on CUDA, FP32 on CPU
@@ -1315,31 +1318,48 @@ def load_causal_lm(model_id: str, tok, device: str, hf_token=None, eval_mode=Fal
             kwargs.update(dict(load_in_4bit=True))
         elif load_in_8bit:
             kwargs.update(dict(load_in_8bit=True))
-    try:
-        mdl = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
-    except TypeError as e:
-        # Transformers API sometimes expects `dtype` instead of `torch_dtype` (or vice-versa).
-        # If we hit a signature error, retry with the alternate kwarg.
-        msg = str(e)
-        if 'torch_dtype' in msg or 'dtype' in msg:
-            alt = dict(kwargs)
-            val = alt.pop('torch_dtype', None)
-            if val is not None:
-                alt['dtype'] = val
-            mdl = AutoModelForCausalLM.from_pretrained(model_id, **alt)
-        else:
+    def _try_load(kw):
+        try:
+            return AutoModelForCausalLM.from_pretrained(model_id, **kw)
+        except TypeError as e:
+            msg = str(e)
+            if 'torch_dtype' in msg or 'dtype' in msg:
+                alt = dict(kw)
+                val = alt.pop('torch_dtype', None)
+                if val is not None:
+                    alt['dtype'] = val
+                return AutoModelForCausalLM.from_pretrained(model_id, **alt)
             raise
-    except OSError as e:
-        # Retry once with SAFETENSORS_FAST=0 and an explicit offload folder on Windows
-        if os.name == 'nt' and ('1455' in str(e) or 'paging file' in str(e).lower()):
-            os.environ['SAFETENSORS_FAST'] = '0'
-            if not offload_dir:
-                offload_dir = os.path.join(os.getcwd(), 'offload')
-                os.makedirs(offload_dir, exist_ok=True)
-            kwargs.update(dict(offload_folder=offload_dir, offload_state_dict=True))
-            mdl = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
-        else:
+
+    mdl = None; last_err = None
+    for attempt in range(2):
+        try:
+            mdl = _try_load(kwargs)
+            break
+        except RuntimeError as e:
+            last_err = e
+            if "CUDACachingAllocator" in str(e) or "NVML_SUCCESS" in str(e):
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                if attempt == 0:
+                    continue
             raise
+        except OSError as e:
+            last_err = e
+            if os.name == 'nt' and ('1455' in str(e) or 'paging file' in str(e).lower()):
+                os.environ['SAFETENSORS_FAST'] = '0'
+                if not offload_dir:
+                    offload_dir = os.path.join(os.getcwd(), 'offload')
+                    os.makedirs(offload_dir, exist_ok=True)
+                kwargs.update(dict(offload_folder=offload_dir, offload_state_dict=True))
+                if attempt == 0:
+                    continue
+            raise
+    if mdl is None:
+        raise last_err if last_err else RuntimeError("Failed to load model")
     ensure_generation_padding(mdl, tok)
     try: mdl.gradient_checkpointing_enable()
     except Exception: pass
@@ -3376,6 +3396,23 @@ def main():
                         scrub.remove()
                 except Exception:
                     pass
+                try:
+                    if torch.cuda.is_available(): torch.cuda.empty_cache()
+                except Exception:
+                    pass
+        # free per-seed models to reduce allocator fragmentation before next seed
+        try:
+            del lora
+        except Exception:
+            pass
+        try:
+            del reft
+        except Exception:
+            pass
+        try:
+            if torch.cuda.is_available(): torch.cuda.empty_cache()
+        except Exception:
+            pass
 
         # DSG baseline: dynamic SAE gating on base (no training)
         try:
