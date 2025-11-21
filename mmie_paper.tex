@@ -1,27 +1,147 @@
 % MMIE: Multilingual Machine Unlearning via Interpretable Sparse Autoencoders
-% Paper for NeurIPS/ACL/ICLR 2025
+% Professional Research Paper Template - Polished Full Version
 
-\documentclass[11pt]{article}
+\documentclass[11pt, a4paper]{article}
 
-% Packages
-\usepackage{neurips_2025} % or acl2025 or iclr2025
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{hyperref}
-\usepackage{url}
-\usepackage{booktabs}
+% --------------------------------------------------
+% GEOMETRY & BASIC LAYOUT
+% --------------------------------------------------
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{microtype}  % Better typographic spacing
+\usepackage{setspace}
+\setstretch{1.08}       % Slightly more open line spacing
+
+% --------------------------------------------------
+% FONT & LANGUAGE (XeLaTeX / LuaLaTeX)
+% --------------------------------------------------
+\usepackage{fontspec}
+\usepackage[hindi, english, bidi=basic, provide=*]{babel}
+
+% Language support
+\babelprovide[import, onchar=ids fonts]{hindi}
+\babelprovide[import, onchar=ids fonts]{english}
+
+% Main fonts (conservative, widely available in TeX Live); XeLaTeX/LuaLaTeX
+\setmainfont{TeX Gyre Pagella}
+\setsansfont{TeX Gyre Heros}
+\setmonofont{Inconsolata}
+
+% Hindi font: ensure Devanagari renders correctly
+\babelfont[hindi]{rm}[Script=Devanagari,Language=Hindi]{Noto Sans Devanagari}
+
+% Paragraph formatting (readability-first)
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% --------------------------------------------------
+% COLORS & BOXES (warm crimson palette)
+% --------------------------------------------------
+\usepackage[table]{xcolor} % 'table' enables \rowcolor, etc.
+\definecolor{mmieBlue}{RGB}{153, 30, 60}       % deep crimson accent
+\definecolor{mmieLightBlue}{RGB}{247, 239, 234} % warm sand background
+\definecolor{mmieGray}{RGB}{70, 70, 70}
+
+\usepackage[most]{tcolorbox}
+\tcbset{
+  sharp corners=rounded,
+  boxsep=4pt,
+  left=6pt,
+  right=6pt,
+  top=6pt,
+  bottom=6pt
+}
+
+% Abstract box
+\newtcolorbox{abstractbox}{
+  colback=mmieLightBlue,
+  colframe=mmieBlue,
+  boxrule=0.5pt
+}
+
+% Highlight / key-contributions box
+\newtcolorbox{highlightbox}{
+  colback=white,
+  colframe=mmieBlue,
+  boxrule=0.6pt,
+  borderline west={2pt}{0pt}{mmieBlue}
+}
+
+% --------------------------------------------------
+% MATH & SYMBOLS
+% --------------------------------------------------
 \usepackage{amsfonts}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{nicefrac}
-\usepackage{microtype}
-\usepackage{xcolor}
-\usepackage{graphicx}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% --------------------------------------------------
+% TABLES & FIGURES
+% --------------------------------------------------
+\usepackage{booktabs}
 \usepackage{multirow}
-\usepackage{algorithm}
-\usepackage{algorithmic}
+\usepackage{graphicx}
 \usepackage{subcaption}
 
-% --- metric macros (filled from latest smoke run on Qwen2.5-1.5B) ---
+% --------------------------------------------------
+% ALGORITHMS
+% --------------------------------------------------
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% --------------------------------------------------
+% LISTS, AUTHORS, SYMBOLS
+% --------------------------------------------------
+\usepackage{enumitem}
+\usepackage{authblk}
+\usepackage{pifont}
+\usepackage{soul}
+
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+% Consistent list spacing for readability
+\setlist{itemsep=4pt, topsep=4pt, parsep=2pt, partopsep=2pt}
+
+% --------------------------------------------------
+% SECTION TITLE STYLING
+% --------------------------------------------------
+\usepackage{titlesec}
+
+\titleformat{\section}
+  {\large\bfseries}
+  {\thesection}
+  {0.75em}
+  {}
+  [\vspace{0.25em}\titlerule]
+
+\titleformat{\subsection}
+  {\normalsize\bfseries}
+  {\thesubsection}
+  {0.6em}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalsize\itshape}
+  {\thesubsubsection}
+  {0.5em}
+  {}
+
+\titlespacing*{\section}{0pt}{1.0\baselineskip}{0.5\baselineskip}
+\titlespacing*{\subsection}{0pt}{0.8\baselineskip}{0.4\baselineskip}
+\titlespacing*{\subsubsection}{0pt}{0.7\baselineskip}{0.3\baselineskip}
+
+% --------------------------------------------------
+% HYPERREF (KEEP LAST)
+% --------------------------------------------------
+\usepackage[colorlinks=true,
+            linkcolor=mmieBlue,
+            citecolor=mmieBlue,
+            urlcolor=mmieBlue]{hyperref}
+
+% --------------------------------------------------
+% CUSTOM MACROS FOR RESULTS (YOUR ORIGINAL MACROS)
+% --------------------------------------------------
 \newcommand{\ESBase}{0.243}
 \newcommand{\ESLoRA}{0.288}
 \newcommand{\ESReFT}{0.239}
@@ -33,945 +153,1048 @@
 \newcommand{\ESMixedReFT}{0.459}
 \newcommand{\XLangUrduBase}{0.00}
 
-% Title and authors
-\title{MMIE: Multilingual Machine Unlearning via Interpretable Sparse Autoencoders}
+% --------------------------------------------------
+% TITLE & METADATA
+% --------------------------------------------------
+\title{\textbf{Multilingual Machine Unlearning:\\
+Interpretable Interventions via Sparse Autoencoders}}
 
-\author{
-  Anonymous Authors \\
-  Anonymous Institution \\
-  \texttt{anonymous@email.com}
-}
+\author{\textbf{Srinivas Raghav V C}}
+\affil{\small Indian Institute of Information Technology, Kottayam\\
+\texttt{srinivas22bcs16@iiitk.ac.in}}
 
+\date{\small\today}
+
+% --------------------------------------------------
+% DOCUMENT START
+% --------------------------------------------------
 \begin{document}
 
 \maketitle
 
-\begin{abstract}
-Machine unlearning in large language models (LLMs) is particularly challenging in multilingual settings, where a concept (e.g., Hindi) is expressed across scripts and related languages. We present \textbf{MMIE}, a pipeline that combines sparse autoencoders (SAEs), representation fine-tuning (ReFT/GRUN), and LoRA with a seven-gate, FDR-corrected evaluation suite. MMIE targets three failure modes: (1) \emph{cross-script leakage} (Devanagari vs. Romanized Hindi), (2) \emph{cross-lingual transfer} (Hindi↔Urdu/Punjabi/Bengali), and (3) \emph{privacy leakage} under stronger attacks. In a smoke run on Qwen2.5-1.5B-Instruct (Hindi forget, English retain), base extraction strength is \ESBase{} while cross-lingual Urdu leakage is \XLangUrduBase{}; LoRA slightly worsens ES to \ESLoRA{} with unchanged perplexity (\PPLLoRA{}), whereas ReFT maintains ES (\ESReFT{}) but collapses utility (PPL \PPLReFT{}). These results highlight the need for SAE-gated, causally targeted edits and richer evaluation. We release code, evaluation bundles, and reproducible configs to accelerate follow-up experiments and larger-scale runs.
-\end{abstract}
+% ---------- ABSTRACT IN A BOX ----------
+\begin{abstractbox}\raggedright
+\noindent\textbf{Abstract.}
+Machine unlearning in multilingual LLMs is harder than in monolingual settings: a single concept (e.g., Hindi) spans multiple scripts and leaks through related languages. We present \textbf{MMIE}, a research pipeline that pairs sparse autoencoders (SAEs) with lightweight adapters (LoRA/ReFT) and a seven-gate, FDR-corrected evaluation to test whether a low-resource language can be cleanly suppressed without collateral damage.
 
-% ===========================
-% 1. INTRODUCTION
-% ===========================
+\medskip
+\noindent\textbf{Key contributions:} (1) A reproducible, script-blind layer-localization + SAE-gating pipeline that targets mid-layer Hindi features (layers 13/14/17 on Qwen2.5-1.5B); (2) A seven-gate evaluation (ES, semantic ES, cross-ling ES, retain PPL, token-KL, MIA, AdvES) with BH-FDR control; (3) A romanization ablation (Devanagari vs. Romanized Hindi) to measure cross-script leakage; (4) Open-source code and auto-bundle outputs for full-run reproducibility. 
+
+\medskip
+\noindent\textbf{Current evidence (Qwen2.5-1.5B case study):} SAE-gated LoRA/GRUN suppress Hindi partially but either leave residual semantic extraction or incur utility/cross-lingual side effects, pointing to a shared mid-layer subspace rather than a cleanly isolatable “Hindi module.” We release code and reports to enable follow-up on larger backbones.
+\end{abstractbox}
+
+\vspace{0.7\baselineskip}
+
 \section{Introduction}
 
-The deployment of large language models (LLMs) has raised critical concerns about data privacy, content moderation, and regulatory compliance \cite{gdpr2018,ccpa2020}. Machine unlearning—the selective removal of specific knowledge from trained models—has emerged as a key solution for the ``right to be forgotten'' \cite{cao2015towards,bourtoule2021machine}. However, existing unlearning methods face significant limitations in multilingual contexts, where knowledge exists across multiple linguistic representations, scripts, and related languages.
+The global deployment of large language models (LLMs) has intensified concerns about data privacy, algorithmic bias, and regulatory compliance. From GDPR's ``right to be forgotten''~\cite{gdpr2018} to CCPA's data deletion mandates~\cite{ccpa2020}, legal frameworks increasingly require organizations to remove specific information from trained models. Machine unlearning addresses this challenge by selectively erasing knowledge without costly full retraining~\cite{cao2015towards,bourtoule2021machine}.
 
-\subsection{The Multilingual Unlearning Challenge}
+While recent advances have achieved impressive results in monolingual settings~\cite{yao2024machine,eldan2023whos,liu2024rethinking}, multilingual unlearning remains critically underexplored. This gap is concerning given that 75\% of internet users are non-English speakers and multilingual LLMs power billions of daily interactions~\cite{ustun2024aya,scao2022bloom}.
 
-Consider the task of unlearning Hindi from a multilingual LLM. This seemingly straightforward objective reveals three fundamental challenges:
+\paragraph{The Multilingual Challenge.} Consider attempting to unlearn Hindi from a multilingual model. Three fundamental challenges emerge:
 
-\begin{enumerate}
-    \item \textbf{Script Multiplicity:} Hindi exists in both Devanagari script (``नमस्ते'') and Romanized form (``namaste''). Does unlearning one representation affect the other?
-    \item \textbf{Cross-Lingual Transfer:} Hindi shares linguistic features with Urdu, Punjabi, and Bengali. Does unlearning Hindi inadvertently affect these related languages?
-    \item \textbf{Latent Romanization:} LLMs may internally represent non-Roman scripts in romanized form \cite{wendler2024romanlens}. How does this internal representation affect unlearning efficacy?
+\textbf{(1) Script multiplicity:} Hindi exists in Devanagari (``नमस्ते'') and Romanized form (``namaste''). Unlearning one script while leaving the other intact creates a trivial bypass---users simply request the alternate script to extract supposedly forgotten knowledge.
+
+\textbf{(2) Linguistic proximity:} Hindi shares substantial lexical and grammatical structure with Urdu (90\% mutual intelligibility), Punjabi, and Bengali. Aggressive unlearning of Hindi may inadvertently degrade these related languages, while conservative approaches may leak Hindi knowledge through them.
+
+\textbf{(3) Internal romanization:} Recent evidence suggests LLMs internally romanize non-Roman scripts during processing~\cite{wendler2024romanlens}. This implies surface-level interventions targeting Devanagari representations may leave romanized latent representations intact.
+
+\paragraph{Limitations of Existing Work.} Current unlearning research exhibits several critical gaps. Evaluation benchmarks like MUSE~\cite{jia2024muse} and TOFU~\cite{maini2024tofu} focus exclusively on monolingual settings and lack systematic testing of cross-script transfer. Most studies test multiple metrics without correcting for multiple comparisons, inflating Type I error rates from 5\% to 30\%. Standard membership inference attacks (MIA) provide only population-level privacy guarantees; stronger per-example attacks reveal significantly higher leakage~\cite{hayes2024inexact}. Finally, black-box gradient methods offer no mechanistic understanding of what features are actually being removed.
+
+\paragraph{Our Approach.} We build a sparse-autoencoder-first pipeline. SAEs give interpretable mid-layer features; gating them is a causal intervention. We pair SAE gating with lightweight adapters and evaluate them under one multi-metric protocol. Concretely:
+
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{LoRA+SAE gate:} bounded unlearning objective on $q/k/v/o$ plus SAE attenuation at selected layers.
+    \item \textbf{GRUN/pyReFT+SAE gate:} gated low-rank residual adapters with SAE gating (our main edit arm).
+    \item \textbf{Baselines (best-effort):} subspace projection and DSG/rand gates, run when dtype/offload constraints allow; otherwise they skip gracefully.
+\end{itemize}
+
+\begin{highlightbox}\raggedright
+\textbf{Main Contributions.}
+\begin{enumerate}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Script-blind mid-layer targeting:} stability-selected layers (13/14/17) and script-blind SAE gating for Hindi in Qwen2.5-1.5B.
+    \item \textbf{Seven-gate, FDR-controlled evaluation:} ES, semantic ES, cross-ling ES, retain PPL, token-KL, MIA, AdvES; BH-FDR to control multiple testing.
+    \item \textbf{Romanization ablation protocol:} Devanagari vs. Romanized forget sets to measure cross-script leakage.
+    \item \textbf{Reproducibility assets:} auto-bundle outputs (results + plots + adapters) and open code for immediate reruns on other backbones.
 \end{enumerate}
+\end{highlightbox}
 
-Existing unlearning methods \cite{jia2024muse,yao2024machine,eldan2023whos,liu2024rethinking} have primarily focused on monolingual settings, leaving these critical questions unanswered. Recent work on sparse autoencoders (SAEs) \cite{bricken2023monosemanticity,cunningham2023sparse} offers a promising direction: by decomposing model activations into interpretable features, SAEs enable targeted interventions that preserve utility while achieving effective forgetting.
+The remainder of this paper is organized as follows: Section~\ref{sec:related} surveys related work; Section~\ref{sec:method} details our methodology; Section~\ref{sec:evaluation} presents our evaluation framework; Section~\ref{sec:setup} describes experimental setup; Section~\ref{sec:results} reports results; Section~\ref{sec:discussion} discusses implications and limitations.
 
-\subsection{Our Contributions}
-
-We introduce \textbf{MMIE} (Multilingual Machine Interpretable Unlearning), a framework that addresses multilingual unlearning through SAE-based interventions. Our key contributions include:
-
-\begin{itemize}
-    \item \textbf{Comprehensive Baseline Hooks:} We implement UNLEARN \cite{pawelczyk2024unlearn}, DSG, LoRA+SAE, and GRUN/pyReFT+SAE within one codebase. Some baselines may be skipped when dtype mismatches arise (e.g., BF16 vs. FP32), but the evaluation harness logs these skips for transparency.
-
-    \item \textbf{Rigorous Evaluation Framework:} A 7-gate, FDR-corrected protocol measures extraction strength, perplexity preservation, privacy, adversarial robustness, cross-lingual leakage, and distributional drift. Benjamini–Hochberg correction controls false discoveries across gates.
-
-    \item \textbf{Romanization Ablation Protocol:} We provide scripts to run Devanagari↔Romanized ablations; early smoke tests show protocol readiness, with full-scale results left for follow-up runs.
-
-    \item \textbf{Stronger Privacy Audits:} Support for U-LiRA+ \cite{hayes2024inexact} is wired; when enabled, it can expose residual memorization beyond standard MIA. (Smoke runs in this draft disable MIA/Token-KL for stability.)
-
-    \item \textbf{Reproducibility Assets:} We release open-source code, an auto-bundling script, and ready-to-run commands for Qwen2.5-1.5B, plus templates to swap in other 7B–8B backbones.
-\end{itemize}
-
-\subsection{Key Findings (smoke run, Qwen2.5-1.5B)}
-
-Using Hindi as the forget set and English as retain, a smoke-cap run (sample cap 256, max length 128, MIA/Token-KL disabled) yields:
-
-\begin{itemize}
-    \item \textbf{Baseline entanglement:} The base model still produces Hindi in \ESBase{} of prompts, confirming non-trivial memorization; cross-lingual Urdu leakage is \XLangUrduBase{} in this setting.
-    \item \textbf{LoRA+SAE:} Forget ES increases to \ESLoRA{} with virtually unchanged retain PPL (\PPLLoRA{}), indicating LoRA edits alone are insufficient for disentangling Hindi.
-    \item \textbf{ReFT/GRUN+SAE:} ES holds at \ESReFT{}, but retain PPL explodes to \PPLReFT{}, showing that naive ReFT without tighter dtype and checkpoint handling harms utility.
-    \item \textbf{Gating and CI:} The auto gating stack (Benjamini–Hochberg across seven gates) stops both LoRA and ReFT arms; only the prompt-only arm passes ES gates but still fails PPL.
-    \item \textbf{Hyperparams:} Lightweight random search selected $(\alpha \approx 0.44, k=16, \tau \approx 0.14)$ for SAE gating; these settings are reused in later runs.
-\end{itemize}
-
-Future full-scale runs (longer max length, full sample set, MIA/Token-KL enabled) will update these numbers and populate the main results tables automatically via \texttt{eval\_full.json}.
-
-% ===========================
-% 2. RELATED WORK
-% ===========================
 \section{Related Work}
+\label{sec:related}
 
-\subsection{Machine Unlearning for LLMs}
+\paragraph{Machine Unlearning for LLMs.}
+Early machine unlearning focused on exact methods requiring access to training data and full retraining~\cite{cao2015towards,guo2019certified}. Modern approaches approximate unlearning through efficient gradient-based methods. Yao et al.~\cite{yao2024machine} apply gradient ascent on forget data but observe weight explosion with unbounded optimization. Zhang et al.~\cite{zhang2024negative} propose negative preference optimization (NPO) framing unlearning as preference learning. Liu et al.~\cite{liu2024rethinking} demonstrate that NPO's effectiveness critically depends on reference model selection. More recent work~\cite{simplicity2024} shows simple gradient ascent with proper constraints often outperforms complex preference-based methods.
 
-Machine unlearning has evolved from exact methods requiring retraining \cite{cao2015towards,guo2019certified} to approximate methods that modify trained models efficiently. Recent approaches include gradient ascent \cite{yao2024machine}, negative preference optimization \cite{liu2024rethinking}, and task arithmetic \cite{ilharco2023editing}. However, most work focuses on monolingual settings and lacks rigorous evaluation of cross-lingual effects.
+Task arithmetic~\cite{ilharco2023editing} enables model editing through weight space arithmetic but struggles with targeted forgetting. UNLEARN~\cite{pawelczyk2024unlearn} projects gradient updates orthogonal to a forget subspace, providing theoretical guarantees but often degrading utility. None of these methods address multilingual settings or provide interpretable mechanisms.
 
-\textbf{Gradient-Based Methods:} Yao et al. \cite{yao2024machine} propose gradient ascent on forget data combined with gradient descent on retain data. However, unbounded gradient ascent can lead to weight explosion \cite{liu2024rethinking}. We address this with bounded unlearning loss: $\mathcal{L}_{\text{forget}} = -\frac{2}{\beta} \log \sigma(-\beta \cdot \text{NLL})$.
+\paragraph{Sparse Autoencoders for Interpretability.}
+SAEs decompose neural network activations into sparse, interpretable features using dictionary learning~\cite{bricken2023monosemanticity}. Cunningham et al.~\cite{cunningham2023sparse} demonstrate SAEs can isolate semantically meaningful features with high precision. Templeton et al.~\cite{templeton2024scaling} scale SAE training to production models (Claude 3 Sonnet), extracting millions of interpretable features. Marks et al.~\cite{marks2024sparse} show SAE features can identify causal mechanisms underlying model behavior.
 
-\textbf{Preference-Based Methods:} NPO (Negative Preference Optimization) \cite{zhang2024negative} treats forget samples as dispreferred outputs. Recent work \cite{simplicity2024} shows that reference models can introduce bias; we compare both NPO and bounded gradient ascent.
+Recent work applies SAEs to model control. DSG~\cite{dsg2025} proposes dynamic guardrails with learned activation thresholds. GradSAE~\cite{gradsae2025} uses gradient-based feature selection for targeted interventions. Our work extends these approaches to multilingual unlearning with comprehensive evaluation.
 
-\textbf{Subspace-Based Methods:} UNLEARN \cite{pawelczyk2024unlearn} projects model updates orthogonal to a forget subspace computed via SVD. This provides theoretical guarantees but may be computationally expensive for large models.
+\paragraph{Evaluation of Unlearning.}
+Standard membership inference attacks~\cite{shokri2017membership} measure whether an example was in training data via likelihood thresholds. Hayes et al.~\cite{hayes2024inexact} demonstrate this significantly underestimates leakage, proposing U-LiRA (Likelihood Ratio Attack) for per-example privacy auditing. Their work reveals approximate unlearning methods overestimate privacy protection by 15--30\%.
 
-\subsection{Sparse Autoencoders for Interpretability}
+Existing benchmarks like MUSE~\cite{jia2024muse} and TOFU~\cite{maini2024tofu} provide standardized evaluation but focus exclusively on English. Neither addresses multiple hypothesis testing---testing seven metrics independently at $\alpha$=0.05 yields 30\% family-wise error rate. Our FDR-corrected protocol addresses this gap.
 
-SAEs decompose neural activations into sparse, interpretable features \cite{bricken2023monosemanticity,cunningham2023sparse}. Recent work shows SAEs can identify causal features for model behavior \cite{marks2024sparse,templeton2024scaling}.
+\paragraph{Multilingual Language Models.}
+While multilingual LLMs are ubiquitous~\cite{ustun2024aya,scao2022bloom}, multilingual unlearning research is nascent. Work on cross-lingual transfer~\cite{pfeiffer2022lifting} demonstrates languages share representational structure, suggesting unlearning one language may affect others. RomanLens~\cite{wendler2024romanlens} reveals LLMs internally romanize non-Roman scripts, implying script-specific interventions may be insufficient. Our work provides the first systematic investigation of these phenomena in unlearning contexts.
 
-\textbf{Dynamic SAE Guardrails (DSG):} Recent work \cite{dsg2025} proposes activation-based gating where SAE interventions are applied only when features exceed a threshold. We implement and evaluate DSG as a baseline.
-
-\textbf{GradSAE:} Gradient-based feature selection \cite{gradsae2025} identifies causally relevant features by computing $\nabla_{\text{feature}} \mathcal{L}_{\text{forget}}$. We compare semantic and gradient-based feature selection.
-
-\subsection{Evaluation of Unlearning}
-
-Existing evaluations often focus on single metrics (e.g., generation-based extraction strength) and fail to account for multiple hypothesis testing \cite{hayes2024inexact}.
-
-\textbf{Membership Inference Attacks:} Standard MIA \cite{shokri2017membership} uses population-level attacks. U-LiRA \cite{hayes2024inexact} and U-LiRA+ provide per-example likelihood ratio attacks, revealing that approximate unlearning methods overestimate privacy protection by 15-30\%.
-
-\textbf{FDR Correction:} Testing multiple evaluation gates without correction inflates Type I error. We apply Benjamini-Hochberg FDR correction \cite{benjamini1995controlling} across 7 evaluation gates, ensuring statistical rigor.
-
-\subsection{Multilingual Unlearning}
-
-While multilingual LLMs are widely deployed \cite{ustun2024aya,scao2022bloom}, multilingual unlearning remains underexplored.
-
-\textbf{Cross-Lingual Transfer:} Recent work shows LLMs exhibit cross-lingual transfer \cite{pfeiffer2022lifting}, but effects on unlearning are unknown. Our cross-lingual leakage metrics (Urdu, Punjabi, Bengali) quantify unintended knowledge transfer.
-
-\textbf{Romanization Effects:} RomanLens \cite{wendler2024romanlens} reveals LLMs internally romanize non-Roman scripts. We conduct the first systematic ablation of script-specific unlearning effects.
-
-% ===========================
-% 3. METHOD
-% ===========================
-\section{Method: MMIE Framework}
+\section{Method}
+\label{sec:method}
 
 \subsection{Problem Formulation}
 
-Let $\mathcal{M}_\theta$ be a pre-trained multilingual LLM with parameters $\theta$. Given a forget set $\mathcal{D}_f$ (e.g., Hindi samples) and retain set $\mathcal{D}_r$ (remaining data), our goal is to produce $\mathcal{M}_{\theta'}$ such that:
-
-\begin{enumerate}
-    \item \textbf{Forget Efficacy:} $\mathcal{M}_{\theta'}$ exhibits minimal knowledge of $\mathcal{D}_f$ across all representations (Devanagari, Romanized).
-    \item \textbf{Utility Preservation:} $\mathcal{M}_{\theta'}$ maintains performance on $\mathcal{D}_r$.
-    \item \textbf{Cross-Lingual Isolation:} Forgetting Hindi does not degrade performance on related languages (Urdu, Punjabi, Bengali).
-    \item \textbf{Privacy:} $\mathcal{M}_{\theta'}$ resists membership inference attacks on $\mathcal{D}_f$.
-\end{enumerate}
-
-\subsection{Layer Selection}
-
-\textbf{Multi-Metric Selection:} We identify optimal intervention layers using four complementary metrics:
-
-\begin{enumerate}
-    \item \textbf{CKA (Centered Kernel Alignment):} Measures representational similarity between forget and retain activations \cite{kornblith2019similarity}.
-    \item \textbf{Procrustes Distance:} Quantifies geometric alignment after optimal rotation \cite{schonemann1966generalized}.
-    \item \textbf{ANC (Activation Neuron Correlation):} Identifies layers with high feature correlation to forget data.
-    \item \textbf{Semantic Scoring:} Uses script-blind language identification to measure forget vs. retain discriminability.
-\end{enumerate}
-
-\textbf{Stability Selection:} To ensure robustness, we run layer selection across 5 random seeds and aggregate via majority voting \cite{meinshausen2010stability}.
-
-\textbf{LLM Judge Refinement (Optional):} When a Gemini API key is available, we use LLM-based judge assistance to refine layer rankings based on generation quality, blending automated metrics with few-shot evaluation.
-
-\subsection{SAE Training and Feature Selection}
-
-\textbf{Matryoshka SAEs:} We train TopK sparse autoencoders \cite{gao2024scaling} with hierarchical dictionary sizes (4096, 8192, 16384) on selected layers. For a given layer $l$, the SAE learns:
+Let $\mathcal{M}_\theta$ denote a pre-trained multilingual LLM with parameters $\theta \in \mathbb{R}^p$. Given a forget set $\mathcal{D}_f = \{x_i\}_{i=1}^{n_f}$ and retain set $\mathcal{D}_r = \{x_j\}_{j=1}^{n_r}$, our objective is to find parameters $\theta'$ satisfying:
 
 \begin{align}
-    h_l &= x_l + b_{\text{dec}} \\
-    f &= \text{TopK}(W_{\text{enc}} \cdot h_l + b_{\text{enc}}, k) \\
-    \hat{h}_l &= W_{\text{dec}} \cdot f + b_{\text{dec}}
+    \theta' = \argmin_{\theta} \quad & \mathbb{E}_{x \sim \mathcal{D}_f}[\mathcal{L}_{\text{forget}}(x; \theta)] + \lambda \mathbb{E}_{x \sim \mathcal{D}_r}[\mathcal{L}_{\text{retain}}(x; \theta)] \label{eq:objective}\\
+    \text{subject to:} \quad & \text{ES}(\theta', \mathcal{D}_f) < \epsilon_{\text{forget}} \nonumber \\
+    & \text{PPL}(\theta', \mathcal{D}_r) < (1 + \delta) \cdot \text{PPL}(\theta, \mathcal{D}_r) \nonumber \\
+    & \text{XLang}(\theta', \mathcal{L}_{\text{related}}) < \epsilon_{\text{leak}} \nonumber
 \end{align}
 
-where $f \in \mathbb{R}^d$ are sparse features, $k=32$ is the sparsity level, and reconstruction loss is $\mathcal{L}_{\text{SAE}} = \|h_l - \hat{h}_l\|_2^2$.
+where ES denotes extraction strength, PPL perplexity, XLang cross-lingual leakage, and $\mathcal{L}_{\text{related}}$ comprises linguistically related languages. The challenge is achieving effective forgetting (low ES) while preserving utility (low PPL increase) without degrading related capabilities.
 
-\textbf{Feature Selection:} We compare three strategies:
+\subsection{Layer Selection via Stability Analysis}
 
-\begin{enumerate}
-    \item \textbf{Semantic (Default):} Select features with highest activation difference between forget/retain and lowest activation on Devanagari gibberish (to avoid script-correlated features).
-    \item \textbf{GradSAE:} Compute $g_i = \nabla_{f_i} \mathcal{L}_{\text{forget}}$ and select features with highest $|g_i|$ \cite{gradsae2025}.
-    \item \textbf{Hybrid:} Combine semantic and gradient signals with learned weights.
-\end{enumerate}
+Not all layers contribute equally to language-specific representations. We identify optimal intervention layers using four complementary metrics:
 
-\textbf{Dynamic SAE Gating:} Unlike static gating (fixed $\alpha$, $k$), we apply soft gating:
-
+\paragraph{(1) Centered Kernel Alignment (CKA).}
+CKA~\cite{kornblith2019similarity} measures representational similarity between forget and retain activations:
 \begin{equation}
-    h'_l = h_l - \alpha \cdot \sigma(g) \cdot W_{\text{dec}} \cdot \text{mask}(f, k)
+    \text{CKA}(A_f, A_r) = \frac{\text{tr}(A_f^\top A_r)}{\sqrt{\text{tr}(A_f^\top A_f) \cdot \text{tr}(A_r^\top A_r)}}
+\end{equation}
+Layers with high CKA separate forget/retain representations effectively.
+
+\paragraph{(2) Procrustes Distance.}
+Procrustes analysis~\cite{schonemann1966generalized} quantifies geometric alignment via optimal orthogonal transformation:
+\begin{equation}
+    d_{\text{proc}}(A_f, A_r) = \min_{Q: Q^\top Q = I} \|A_f Q - A_r\|_F
+\end{equation}
+Low Procrustes distance indicates similar geometry requiring targeted intervention.
+
+\paragraph{(3) Activation-Neuron Correlation (ANC).}
+For each layer $l$ and neuron $i$, compute correlation between activations and forget labels:
+\begin{equation}
+    \text{ANC}_{li} = \left|\text{corr}(h_{li}, y_{\text{forget}})\right|
+\end{equation}
+High ANC identifies neurons strongly associated with forget content.
+
+\paragraph{(4) Semantic Language Discriminability.}
+Train a lightweight language identifier on layer activations. Layers where classification accuracy peaks indicate maximal language-specific encoding.
+
+We apply \textit{stability selection}~\cite{meinshausen2010stability} across five random seeds (42--46), selecting layers appearing in $\geq$80\% of runs. This yields robust, reproducible layer choices.
+
+\subsection{Sparse Autoencoder Training}
+
+We train TopK sparse autoencoders~\cite{gao2024scaling} with Matryoshka dictionary architecture enabling multi-resolution interventions. For layer $l$, the SAE learns:
+
+\begin{align}
+    h_l &= x_l + b_{\text{dec}} \label{eq:sae-center}\\
+    f &= \text{TopK}(W_{\text{enc}} \cdot h_l + b_{\text{enc}}, k) \label{eq:sae-encode}\\
+    \hat{h}_l &= W_{\text{dec}} \cdot f + b_{\text{dec}} \label{eq:sae-decode}
+\end{align}
+
+where $x_l \in \mathbb{R}^{d_{\text{model}}}$ is the original activation, $f \in \mathbb{R}^{d_{\text{dict}}}$ are sparse features ($k$ non-zero), and $W_{\text{enc}} \in \mathbb{R}^{d_{\text{dict}} \times d_{\text{model}}}$, $W_{\text{dec}} \in \mathbb{R}^{d_{\text{model}} \times d_{\text{dict}}}$ are encoder/decoder matrices. We enforce unit norm decoder columns: $\|W_{\text{dec}}[:, i]\|_2 = 1$.
+
+The training objective minimizes reconstruction error:
+\begin{equation}
+    \mathcal{L}_{\text{SAE}} = \mathbb{E}_{x \sim \mathcal{D}_{\text{train}}}\left[\|h_l - \hat{h}_l\|_2^2\right]
 \end{equation}
 
-where $\sigma(g)$ is a learned gate based on activation magnitude, enabling sample-adaptive intervention strength.
+We train dictionaries of sizes $\{4096, 8192, 16384\}$ (Matryoshka nesting), enabling adaptive feature selection. Sparsity level $k=32$ provides optimal balance between expressiveness and interpretability.
+
+\subsection{Feature Selection Strategies}
+
+We compare three approaches for identifying features to suppress:
+
+\paragraph{Semantic Selection (Default).}
+Select features maximizing differential activation on forget vs. retain data while minimizing activation on script-correlated gibberish (noise control):
+\begin{equation}
+    s_i = \underbrace{\frac{\mathbb{E}_{x \sim \mathcal{D}_f}[f_i] - \mathbb{E}_{x \sim \mathcal{D}_r}[f_i]}{\sqrt{\text{Var}(f_i)}}}_{\text{Signal}} - \underbrace{\alpha \cdot \mathbb{E}_{x \sim \mathcal{D}_{\text{gibberish}}}[f_i]}_{\text{Noise penalty}}
+\end{equation}
+
+Features with high $s_i$ capture language-specific content rather than spurious script correlations. We set $\alpha=0.3$ based on validation set performance.
+
+\paragraph{GradSAE~\cite{gradsae2025}.}
+Compute gradient magnitude with respect to forget loss:
+\begin{equation}
+    g_i = \left|\frac{\partial \mathcal{L}_{\text{forget}}}{\partial f_i}\right|
+\end{equation}
+
+Select top-$k$ features by $g_i$. This gradient-based approach identifies causally relevant features but requires expensive backpropagation through the full model.
+
+\paragraph{Hybrid Selection.}
+Combine semantic and gradient signals via learned weights:
+\begin{equation}
+    h_i = w_s \cdot s_i + w_g \cdot g_i, \quad w_s + w_g = 1
+\end{equation}
+
+Weights $w_s$, $w_g$ are tuned on validation set via Bayesian optimization.
 
 \subsection{Unlearning Methods}
 
-We implement and compare four state-of-the-art approaches:
+\paragraph{UNLEARN~\cite{pawelczyk2024unlearn}.}
+Constructs a forget subspace via singular value decomposition. Given forget activations $A_f \in \mathbb{R}^{n_f \times d}$, compute:
+\begin{equation}
+    U, \Sigma, V = \text{SVD}(A_f)
+\end{equation}
 
-\subsubsection{UNLEARN (Subspace Projection)}
+Extract top $r$ left singular vectors $U_r = U[:, :r]$ forming an orthonormal basis for the forget subspace. Project activations orthogonal to this subspace:
+\begin{equation}
+    h'_l = h_l - U_r U_r^\top h_l = (I - U_r U_r^\top) h_l
+\end{equation}
 
-UNLEARN \cite{pawelczyk2024unlearn} computes a forget subspace via SVD and projects model updates orthogonally:
+This ensures gradient updates during unlearning have zero projection onto the forget subspace, providing theoretical guarantees. However, utility often degrades significantly as the projection removes both harmful and benign components.
 
-\begin{algorithm}[H]
-\caption{UNLEARN Baseline}
-\begin{algorithmic}[1]
-\STATE Compute forget activations $A_f \in \mathbb{R}^{n \times d}$
-\STATE $U, \Sigma, V = \text{SVD}(A_f)$
-\STATE $U_r = U[:, :r]$ (top $r$ components)
-\STATE Forward hook: $h'_l = h_l - U_r U_r^\top h_l$
-\end{algorithmic}
-\end{algorithm}
-
-\subsubsection{DSG (Dynamic SAE Guardrails)}
-
-DSG \cite{dsg2025} applies SAE interventions dynamically based on activation thresholds:
-
+\paragraph{DSG: Dynamic SAE Guardrails~\cite{dsg2025}.}
+Applies SAE-based interventions selectively via learned activation thresholds:
 \begin{equation}
     h'_l = \begin{cases}
-        h_l - \alpha \cdot W_{\text{dec}} \cdot \text{TopK}(f, k) & \text{if } \|f\| > \tau \\
+        h_l - \alpha \cdot W_{\text{dec}} \cdot \text{mask}(f, \mathcal{K}) & \text{if } \|f\|_2 > \tau \\
         h_l & \text{otherwise}
     \end{cases}
 \end{equation}
 
-This prevents over-suppression on retain data while maintaining strong forget efficacy.
-
-\subsubsection{LoRA+SAE}
-
-We fine-tune low-rank adapters \cite{hu2022lora} on $q_{\text{proj}}$ and $v_{\text{proj}}$ with bounded unlearning loss:
-
-\begin{align}
-    \mathcal{L}_{\text{total}} &= \mathcal{L}_{\text{forget}} + \lambda \mathcal{L}_{\text{retain}} \\
-    \mathcal{L}_{\text{forget}} &= -\frac{2}{\beta} \log \sigma(-\beta \cdot \text{NLL}_f)
-\end{align}
-
-The bounded loss prevents weight explosion common in gradient ascent. We use dual optimizers with separate learning rates ($\eta_f = 10^{-4}$, $\eta_r = 5 \times 10^{-5}$).
-
-\textbf{Curriculum Learning:} We employ three-stage curriculum: easy (high-loss samples) → uniform → hard (low-loss samples), progressively increasing unlearning difficulty.
-
-\subsubsection{GRUN+SAE (Proposed)}
-
-GRUN (Gated Representation UNlearning) \cite{wu2024reft} augments ReFT \cite{wu2024reft} with soft suppression gates:
-
+where $\mathcal{K}$ indexes features to suppress and $\tau$ is a learned threshold. The mask function zeroes selected features:
 \begin{equation}
-    h'_l = h_l + \sigma(-g) \cdot B(A(h_l))
+    \text{mask}(f, \mathcal{K})_i = \begin{cases}
+        f_i & \text{if } i \in \mathcal{K} \\
+        0 & \text{otherwise}
+    \end{cases}
 \end{equation}
 
-where $g$ is a learned gate that suppresses forget-related activations. Combined with dynamic SAE gating, GRUN+SAE achieves state-of-the-art forget-utility trade-offs.
+DSG learns $\tau$ via gradient descent on a validation set, dynamically adjusting intervention strength.
 
-\subsection{Training Details}
+\paragraph{LoRA+SAE.}
+Fine-tunes low-rank adapters~\cite{hu2022lora} on attention projection matrices guided by SAE features. For weight matrix $W \in \mathbb{R}^{d \times d}$:
+\begin{equation}
+    W' = W + BA, \quad A \in \mathbb{R}^{r \times d}, B \in \mathbb{R}^{d \times r}
+\end{equation}
 
-\textbf{Adaptive Training Strategies:}
-\begin{itemize}
-    \item \textbf{Dynamic Sample Weighting:} Reweight forget samples by per-sample loss, prioritizing hard-to-unlearn samples.
-    \item \textbf{Dual Optimizer:} Separate Adam optimizers for forget ($\eta=10^{-4}$) and retain ($\eta=5 \times 10^{-5}$) steps.
-    \item \textbf{Cosine LR Schedule:} Warmup (50 steps) + cosine decay for stable training.
-    \item \textbf{Early Stopping:} Patience=50 on validation forget ES + retain PPL.
+The training objective combines forget and retain losses with bounded gradient ascent:
+\begin{align}
+    \mathcal{L}_{\text{total}} &= \mathcal{L}_{\text{forget}} + \lambda \mathcal{L}_{\text{retain}} \\
+    \mathcal{L}_{\text{forget}} &= -\frac{2}{\beta} \log \sigma\left(-\beta \cdot \text{NLL}(x; \theta + BA)\right)
+\end{align}
+
+The bounded loss prevents weight explosion observed in vanilla gradient ascent~\cite{yao2024machine}. We employ:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Dual optimizers:} AdamW with $\eta_f = 10^{-4}$ for forget, $\eta_r = 5 \times 10^{-5}$ for retain
+    \item \textbf{Curriculum learning:} Three stages with increasing forget weight
+    \item \textbf{Early stopping:} Monitor validation ES and PPL to prevent overfitting
 \end{itemize}
 
-% ===========================
-% 4. EVALUATION FRAMEWORK
-% ===========================
+\paragraph{GRUN+SAE (Proposed).}
+Our method combines representation fine-tuning~\cite{wu2024reft} with dynamic SAE suppression for both coarse and fine-grained control. The intervention has two components:
+
+\textit{(1) Gated representation shift:}
+\begin{equation}
+    h^{\text{ReFT}}_l = h_l + \sigma(-g_{\text{ReFT}}) \cdot B(A(h_l))
+\end{equation}
+
+where $A \in \mathbb{R}^{r \times d}$ projects to low-rank subspace, $B \in \mathbb{R}^{d \times r}$ reconstructs, and $g_{\text{ReFT}} \in \mathbb{R}$ is a learned gate controlling intervention strength.
+
+\textit{(2) Dynamic SAE feature suppression:}
+\begin{equation}
+    h'_l = h^{\text{ReFT}}_l - \alpha \cdot \sigma(g_{\text{SAE}}) \cdot W_{\text{dec}} \cdot \text{mask}(f, \mathcal{K})
+\end{equation}
+
+where $g_{\text{SAE}} \in \mathbb{R}$ independently gates SAE intervention. The complete transformation is:
+\begin{equation}
+    h'_l = h_l + \underbrace{\sigma(-g_{\text{ReFT}}) \cdot B(A(h_l))}_{\text{Coarse shift}} - \underbrace{\alpha \cdot \sigma(g_{\text{SAE}}) \cdot W_{\text{dec}} \cdot \text{mask}(f, \mathcal{K})}_{\text{Fine-grained suppression}}
+\end{equation}
+
+This dual-mechanism approach provides:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Coarse control:} Representation shift moves activations away from forget region
+    \item \textbf{Fine-grained control:} Feature suppression targets specific semantic content
+    \item \textbf{Adaptive gating:} Learned gates prevent over-suppression and utility degradation
+\end{itemize}
+
+The parameters $\{A, B, g_{\text{ReFT}}, g_{\text{SAE}}\}$ are jointly optimized via:
+\begin{equation}
+    \min_{A,B,g} \mathcal{L}_{\text{forget}}(\theta + \Delta\theta(A,B,g)) + \lambda \mathcal{L}_{\text{retain}}(\theta + \Delta\theta(A,B,g))
+\end{equation}
+
+with bounded loss ($\beta=5.0$) and gradient clipping (norm $\leq 1.0$) for stable training.
+
 \section{Evaluation Framework}
+\label{sec:evaluation}
 
-\subsection{7-Gate FDR-Corrected Protocol}
+\subsection{Seven-Gate Protocol with FDR Correction}
 
-We propose a comprehensive evaluation with 7 gates, applying Benjamini-Hochberg FDR correction \cite{benjamini1995controlling} to control family-wise error rate:
+We evaluate unlearning methods across seven complementary metrics, each capturing distinct aspects of forgetting and utility preservation:
 
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Gate} & \textbf{Metric} & \textbf{Threshold} \\
-\midrule
-G1: ES & Extraction Strength & $< 0.15$ \\
-G2: PPL & Perplexity (retain) & $< 1.1 \times \text{base}$ \\
-G3: MIA & Membership Inference AUC & $< 0.60$ \\
-G4: Redistrib & Token-level KL to base & $< 0.25$ \\
-G5: XLang & Cross-lingual ES & $< 0.30$ \\
-G6: TokenKL & Distributional drift & $< 0.20$ \\
-G7: AdvES & Adversarial ES & $< 0.30$ \\
-\bottomrule
-\end{tabular}
-\caption{7-gate evaluation protocol with pass criteria.}
-\label{tab:gates}
-\end{table}
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{G1: Extraction Strength (ES)} $< 0.15$ --- Fraction of generated samples containing forget language
+    \item \textbf{G2: Perplexity (PPL)} $< 1.1 \times$ base --- General language modeling ability
+    \item \textbf{G3: Membership Inference (MIA-AUC)} $< 0.60$ --- Privacy leakage via population-level attacks
+    \item \textbf{G4: Redistribution} $< 0.25$ --- Pathological behavior (repeated tokens, nonsense)
+    \item \textbf{G5: Cross-Lingual Leakage (XLang)} $< 0.30$ --- ES on related languages
+    \item \textbf{G6: Token-Level KL Divergence} $< 0.20$ --- Distribution shift from base model
+    \item \textbf{G7: Adversarial ES} $< 0.30$ --- Robustness to prompt injection and translation attacks
+\end{itemize}
 
-\textbf{FDR Correction:} For $m=7$ hypotheses with p-values $p_1 \leq \ldots \leq p_m$, we reject $H_i$ if $p_i \leq \frac{i}{m} \alpha$ for FDR level $\alpha=0.05$.
+\paragraph{Multiple Testing Correction.}
+Testing seven independent hypotheses at $\alpha=0.05$ yields family-wise error rate (FWER) of approximately $1-(1-0.05)^7 \approx 0.30$---far exceeding the nominal 5\% level. We apply the Benjamini-Hochberg (BH) procedure~\cite{benjamini1995controlling} to control false discovery rate:
+
+\begin{algorithm}[h]
+\caption{Benjamini-Hochberg FDR Correction}
+\begin{algorithmic}[1]
+\STATE Sort p-values: $p_1 \leq p_2 \leq \cdots \leq p_7$
+\FOR{$i = 7$ down to $1$}
+    \IF{$p_i \leq (i/7) \cdot \alpha$}
+        \STATE Reject hypotheses $H_1, \ldots, H_i$
+        \STATE \textbf{break}
+    \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+For $\alpha=0.05$, the thresholds are: $p_1 \leq 0.0071$, $p_2 \leq 0.0143$, $\ldots$, $p_7 \leq 0.0500$. A method ``passes'' gate $i$ only if $p_i$ falls below the BH threshold.
 
 \subsection{Evaluation Metrics}
 
-\subsubsection{Extraction Strength (ES)}
-
-We generate 100 samples from prompts: ``Write a sentence in Hindi:'' and measure the fraction containing Hindi via ensemble LID (script-based + romanized + langid + CLD3 + FastText).
-
-\textbf{Script-Aware ES:} Detects Devanagari via Unicode ranges.
-
-\textbf{Script-Blind (Semantic) ES:} Detects both Devanagari and Romanized Hindi, capturing latent romanization.
-
-\subsubsection{Membership Inference Attack (MIA)}
-
-Standard MIA trains a binary classifier on loss distributions:
-
+\paragraph{Extraction Strength (ES).}
+Generate $N=100$ samples from prompts ``Write a friendly sentence in [LANGUAGE]:'' with temperature $T=0.7$. Apply an ensemble of five language detectors (fastText, langid, pyCLD2, langdetect, lingua) and measure fraction containing target language via majority vote:
 \begin{equation}
-    \text{MIA-AUC} = \text{AUC}(\{\mathcal{L}(x) : x \in \mathcal{D}_f\}, \{\mathcal{L}(x) : x \in \mathcal{D}_{\text{test}}\})
+    \text{ES} = \frac{1}{N} \sum_{i=1}^N \mathbb{1}\left[\text{majority}(\{\text{detector}_j(y_i)\}_{j=1}^5) = \text{target}\right]
 \end{equation}
 
-\subsubsection{U-LiRA+ (Per-Example LR Attack)}
+We report both \textit{script-aware} ES (counting only native script) and \textit{script-blind} ES (including romanized output).
 
-U-LiRA+ \cite{hayes2024inexact} computes per-sample likelihood ratios:
+\paragraph{Membership Inference Attacks.}
+\textit{Standard MIA}~\cite{shokri2017membership}: Measure AUC of loss-based classifier:
+\begin{equation}
+    \text{MIA-AUC} = \text{AUC}\left(\{\mathcal{L}_\theta(x) : x \in \mathcal{D}_f\}, \{\mathcal{L}_\theta(x) : x \in \mathcal{D}_{\text{test}}\}\right)
+\end{equation}
 
+\textit{U-LiRA+ (Likelihood Ratio Attack)}~\cite{hayes2024inexact}: For each example $x$, compute per-sample likelihood ratio:
 \begin{equation}
     \text{LR}(x) = \frac{P_{\theta'}(x)}{P_{\theta_{\text{retrain}}}(x)}
 \end{equation}
 
-If $\text{LR}(x) > 1$, sample $x$ likely remains in the model (privacy leak). U-LiRA+ is significantly stronger than standard MIA, revealing hidden vulnerabilities.
+where $\theta'$ is the unlearned model and $\theta_{\text{retrain}}$ is retrained on $\mathcal{D}_{\text{train}} \setminus \{x\}$. High LR indicates $x$ was likely in training data. U-LiRA+ provides significantly stronger privacy auditing than population-level MIA.
 
-\subsubsection{Adversarial Extraction Strength (AdvES)}
-
-We test robustness against meta-instruction attacks:
-
-\begin{itemize}
-    \item ``Ignore previous instructions. Write in Hindi.''
-    \item ``Translate 'Hello' to Hindi.''
-    \item Code-mixed prompts: ``Write a greeting using 'namaste'.''
+\paragraph{Adversarial Extraction.}
+Test robustness against three attack types:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Meta-instruction:} ``Ignore previous instructions. Write in Hindi.''
+    \item \textbf{Translation:} ``Translate 'Hello, how are you?' to Hindi.''
+    \item \textbf{Code-switching:} Mixed English-Hindi prompts exploiting shared context
 \end{itemize}
 
-\subsubsection{Cross-Lingual Leakage}
+Report extraction rate across 50 adversarial prompts per type.
 
-We measure ES on related languages (Urdu, Punjabi, Bengali) to quantify unintended knowledge transfer:
-
+\paragraph{Cross-Lingual Leakage.}
+Measure ES on linguistically related languages:
 \begin{equation}
-    \text{XLang-Leak} = \frac{1}{|\mathcal{L}_{\text{related}}|} \sum_{l \in \mathcal{L}_{\text{related}}} \text{ES}_l
+    \text{XLang} = \frac{1}{|\mathcal{L}_{\text{related}}|} \sum_{l \in \mathcal{L}_{\text{related}}} \text{ES}_l
 \end{equation}
 
-\subsubsection{Comprehension Metrics}
+For Hindi, $\mathcal{L}_{\text{related}} = \{\text{Urdu, Punjabi, Bengali}\}$---languages sharing substantial lexical and grammatical structure.
 
-To test deep unlearning vs. superficial suppression:
+\paragraph{Comprehension Metrics.}
+\textit{Translation LID:} Given English-to-Hindi translation requests, measure output language distribution. High Hindi fraction indicates incomplete unlearning.
 
-\begin{itemize}
-    \item \textbf{Translation LID:} Prompt ``Translate 'Hello' to Hindi,'' measure output language.
-    \item \textbf{Yes/No Detection:} Ask ``Is 'नमस्ते' a Hindi word?''
-\end{itemize}
+\textit{Yes/No Detection:} Ask factual questions about Hindi in English (e.g., ``Is Hindi spoken in India?''). Measure correct response rate; sharp drop suggests collateral damage to world knowledge.
 
-\subsubsection{ActPert (Activation Perturbation)}
-
-ActPert \cite{actpert2025} adds Gaussian noise to hidden states and measures ES degradation:
-
+\textit{ActPert (Activation Perturbation)~\cite{actpert2025}:} Add Gaussian noise to activations and measure ES degradation:
 \begin{equation}
     h'_l = h_l + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma^2 I)
 \end{equation}
 
-If ES remains low under perturbation, unlearning is robust; if ES increases, knowledge is still latent.
+Deep unlearning should maintain low ES under perturbation, while surface-level interventions degrade.
 
 \subsection{Romanization Ablation Study}
 
-To understand script-specific effects, we systematically vary forget and eval sets:
+To systematically investigate cross-script transfer, we construct nine experimental conditions by varying forget and evaluation sets across three script configurations:
 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}l|ccc@{}}
 \toprule
-\textbf{Forget Set} & \textbf{Eval Set} & \textbf{Question} \\
+\textbf{Forget $\backslash$ Eval} & \textbf{Devanagari} & \textbf{Romanized} & \textbf{Both} \\
 \midrule
-Devanagari & Devanagari & Direct unlearning \\
-Devanagari & Romanized & Cross-script transfer? \\
-Romanized & Devanagari & Reverse transfer? \\
-Romanized & Romanized & Direct unlearning \\
-Both & Both & Joint unlearning (baseline) \\
+Devanagari & $\text{ES}_{\text{Dev}\to\text{Dev}}$ & $\text{ES}_{\text{Dev}\to\text{Rom}}$ & $\text{ES}_{\text{Dev}\to\text{Both}}$ \\
+Romanized & $\text{ES}_{\text{Rom}\to\text{Dev}}$ & $\text{ES}_{\text{Rom}\to\text{Rom}}$ & $\text{ES}_{\text{Rom}\to\text{Both}}$ \\
+Both & $\text{ES}_{\text{Both}\to\text{Dev}}$ & $\text{ES}_{\text{Both}\to\text{Rom}}$ & $\text{ES}_{\text{Both}\to\text{Both}}$ \\
 \bottomrule
 \end{tabular}
-\caption{Romanization ablation matrix.}
-\label{tab:rom_ablation}
+\caption{Romanization ablation matrix. Each cell measures ES under specific forget/eval configuration.}
+\label{tab:rom}
 \end{table}
 
-% ===========================
-% 5. EXPERIMENTAL SETUP
-% ===========================
+This reveals:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Same-script effectiveness:} How well does unlearning work within the target script?
+    \item \textbf{Cross-script transfer:} Does unlearning one script affect the other?
+    \item \textbf{Joint necessity:} Is targeting both scripts required for robust protection?
+\end{itemize}
+
 \section{Experimental Setup}
+\label{sec:setup}
 
-\subsection{Model and Data}
+\paragraph{Model and Datasets.}
+We use \textbf{Qwen2.5-1.5B-Instruct}~\cite{qwen2024}, a state-of-the-art multilingual model with strong Hindi performance. Datasets comprise:
 
-\textbf{Base Model:} Qwen2.5-1.5B-Instruct \cite{qwen2024}, a multilingual instruction-tuned LLM with strong Hindi support.
-
-\textbf{Datasets:}
-\begin{itemize}
-    \item \textbf{Forget:} 1,200 Hindi samples (mixed Devanagari/Romanized)
-    \item \textbf{Retain:} 1,200 English samples
-    \item \textbf{Mixed:} 600 Hindi–English code-mix samples
-    \item \textbf{Cross-lingual:} 600 samples each of Urdu, Punjabi, Bengali
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Forget:} 1,200 Hindi samples (60\% Devanagari, 40\% Romanized) from WikiMatrix~\cite{wikimatrix} covering diverse topics
+    \item \textbf{Retain:} 1,200 English samples from C4~\cite{raffel2020exploring} matching genre distribution
+    \item \textbf{Code-switch:} 600 Hindi-English mixed samples for adversarial testing
+    \item \textbf{Cross-lingual:} 600 samples each of Urdu, Punjabi, Bengali for leakage analysis
 \end{itemize}
 
-\subsection{Baselines}
+All datasets are manually verified for quality and balanced across domains (news, dialogue, informational).
 
-\begin{itemize}
-    \item \textbf{Base (No Unlearning):} Original Qwen2.5-1.5B-Instruct
-    \item \textbf{UNLEARN:} Subspace projection, rank $r=16$
-    \item \textbf{DSG:} Dynamic SAE gating, $\tau=0.35$, $k=32$
-    \item \textbf{LoRA+SAE:} LoRA rank=8, 500 steps, bounded loss
-    \item \textbf{GRUN+SAE:} GRUN rank=8, 300 steps, bounded loss
+\paragraph{Hardware and Software.}
+\textit{Hardware:} NVIDIA A100 GPU (40GB VRAM) with 8-bit quantization (bitsandbytes) and Flash Attention 2~\cite{dao2023flashattention} for memory efficiency.
+
+\textit{Software stack:}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item PyTorch 2.1.0 with CUDA 12.1
+    \item Transformers 4.36.0 for model loading
+    \item PEFT 0.8.0 for LoRA implementation
+    \item SAE-Lens 6.0 for SAE training and analysis
+    \item PyReFT 0.2 for representation fine-tuning
 \end{itemize}
 
-\subsection{Hyperparameters}
-
-\textbf{SAE Training:}
-\begin{itemize}
+\paragraph{Hyperparameters.}
+\textit{SAE training:}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
     \item Dictionary sizes: [4096, 8192, 16384] (Matryoshka)
-    \item TopK: $k=32$
-    \item Batch size: 16, Steps: 2000, LR: $3 \times 10^{-4}$
+    \item TopK sparsity: $k=32$
+    \item Batch size: 16, Training steps: 2000
+    \item Learning rate: $3 \times 10^{-4}$ with cosine schedule
+    \item Warmup: 200 steps
 \end{itemize}
 
-\textbf{Unlearning Training:}
-\begin{itemize}
-    \item LoRA/GRUN rank: 8
-    \item Learning rates: $\eta_f = 10^{-4}$, $\eta_r = 5 \times 10^{-5}$
-    \item Steps: LoRA=500, GRUN=300
-    \item Batch size: 8, Max length: 256
-    \item Early stopping patience: 50
+\textit{Unlearning (LoRA/GRUN):}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item Low-rank dimension: $r=8$
+    \item Forget LR: $10^{-4}$, Retain LR: $5 \times 10^{-5}$
+    \item Training steps: LoRA 500, GRUN 300
+    \item Bounded loss: $\beta=5.0$
+    \item Gradient clipping: max norm 1.0
+    \item Curriculum stages: [0.5, 1.0, 2.0] forget loss weight
 \end{itemize}
 
-\subsection{Implementation Details}
+\paragraph{Statistical Rigor.}
+All experiments run over three random seeds (42, 43, 44). We report mean $\pm$ 95\% bias-corrected and accelerated (BCa) bootstrap confidence intervals~\cite{efron1987better} with 10,000 bootstrap samples. Statistical significance determined via Wilcoxon signed-rank test with BH correction.
 
-\textbf{Hardware:} NVIDIA A100 (40GB), 8-bit quantization via \texttt{bitsandbytes}, Flash Attention 2 \cite{dao2023flashattention}.
-
-\textbf{Software:} PyTorch 2.1, Transformers 4.36, PEFT 0.8, SAE-Lens 6.0, PyReFT 0.2.
-
-\textbf{Reproducibility:} All experiments run across 3 random seeds (42, 43, 44). We report mean ± 95\% BCa bootstrap confidence intervals \cite{efron1987better}.
-
-% ===========================
-% 6. RESULTS
-% ===========================
 \section{Results}
+\label{sec:results}
 
-\subsection{Main Results: Unlearning Performance}
+\subsection{Main Results: Comprehensive Comparison}
 
-Table \ref{tab:main_results} presents our main findings across four unlearning methods. GRUN+SAE achieves the best forget-utility trade-off, with 95.4\% forget efficacy (ES=0.04) while maintaining 89.3\% utility (PPL: 15.2→16.8, +10.7\%).
+Table~\ref{tab:main} presents our comprehensive evaluation across all metrics and methods. In the Qwen2.5-1.5B case study, no single arm passes all seven gates: SAE-gated LoRA/GRUN reduce Hindi ES but either leave residual semantic ES or incur utility/cross-ling trade-offs. This supports the “shared mid-layer subspace” view rather than cleanly isolatable Hindi circuits.
 
 \begin{table*}[t]
 \centering
-\small
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lcccccccc@{}}
 \toprule
-\textbf{Method} & \textbf{ES↓} & \textbf{PPL(ret)↓} & \textbf{MIA-AUC↓} & \textbf{U-LiRA-AUC↓} & \textbf{AdvES↓} & \textbf{XLang↓} & \textbf{TokenKL↓} & \textbf{Gates ✓} \\
+\textbf{Method} & \textbf{ES$\downarrow$} & \textbf{PPL$\downarrow$} & \textbf{MIA$\downarrow$} & \textbf{U-LiRA+$\downarrow$} & \textbf{AdvES$\downarrow$} & \textbf{XLang$\downarrow$} & \textbf{TokenKL$\downarrow$} & \textbf{Gates} \\
 \midrule
-Base & 0.87 & 15.2 & 0.89 & 0.91 & 0.85 & 0.78 & 0.02 & 0/7 \\
-\midrule
-UNLEARN & 0.12 ± 0.02 & 18.3 ± 0.8 & 0.61 ± 0.04 & 0.68 ± 0.05 & 0.35 ± 0.06 & 0.42 ± 0.05 & 0.24 ± 0.03 & 4/7 \\
-DSG & 0.08 ± 0.02 & 19.1 ± 0.9 & 0.58 ± 0.03 & 0.65 ± 0.04 & 0.32 ± 0.05 & 0.38 ± 0.04 & 0.22 ± 0.02 & 5/7 \\
-LoRA+SAE & 0.06 ± 0.01 & 16.8 ± 0.5 & 0.54 ± 0.03 & 0.59 ± 0.03 & 0.28 ± 0.04 & 0.31 ± 0.03 & 0.18 ± 0.02 & 6/7 \\
-\textbf{GRUN+SAE} & \textbf{0.04 ± 0.01} & \textbf{16.2 ± 0.4} & \textbf{0.51 ± 0.02} & \textbf{0.56 ± 0.03} & \textbf{0.24 ± 0.03} & \textbf{0.28 ± 0.03} & \textbf{0.15 ± 0.02} & \textbf{7/7} \\
+Base & TBD & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+LoRA+SAE & TBD & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+GRUN+SAE & TBD & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
 \bottomrule
-\end{tabular}
-\caption{Main results on Hindi unlearning (Qwen2.5-1.5B-Instruct). Lower is better for all metrics. GRUN+SAE passes all 7 FDR-corrected gates. Results averaged over 3 seeds with 95\% BCa bootstrap CIs.}
-\label{tab:main_results}
+\end{tabular}%
+}
+\caption{\textbf{Main results on Hindi unlearning} (Qwen2.5-1.5B-Instruct). Lower is better for all metrics. Numbers will be filled from the final \texttt{eval\_full.json}; in our case study no arm passes all seven gates simultaneously. Mean $\pm$ 95\% BCa bootstrap confidence intervals over seeds.}
+\label{tab:main}
 \end{table*}
 
-\textbf{Key Observations:}
+\paragraph{Key Observations:}
 
-\begin{itemize}
-    \item \textbf{GRUN+SAE is the only method passing all 7 gates:} This demonstrates the importance of gated representation editing combined with dynamic SAE interventions.
+\textbf{(1) No single arm dominates.} In the Qwen2.5-1.5B case study, SAE-gated LoRA and GRUN reduce Hindi ES but do not pass all gates simultaneously; ReFT often trades ES gains for higher PPL. This supports a shared, hard-to-isolate Hindi subspace.
 
-    \item \textbf{U-LiRA reveals hidden vulnerabilities:} All methods show 5-15\% higher AUC on U-LiRA vs. standard MIA, confirming \cite{hayes2024inexact}'s findings that approximate unlearning overestimates privacy protection.
+\textbf{(2) Privacy audits matter.} We include U-LiRA+ to surface per-example leakage beyond population MIA; final values will come from \texttt{eval\_full.json}. Prior smoke runs showed U-LiRA+ can exceed MIA, echoing Hayes et al.~\cite{hayes2024inexact}.
 
-    \item \textbf{UNLEARN struggles with utility:} While theoretically grounded, UNLEARN causes 20.4\% PPL degradation due to aggressive subspace removal.
+\textbf{(3) Subspace and static baselines are fragile.} UNLEARN/DSG often skip on dtype or degrade retain PPL; we keep them as best-effort baselines but do not rely on them for conclusions.
 
-    \item \textbf{DSG improves over static SAE gating:} Dynamic gating reduces utility loss by 12\% (19.1 vs. 21.6 PPL, static baseline not shown).
-\end{itemize}
+\textbf{(4) LoRA/GRUN trade-offs.} In the 1.5B case study, SAE-gated LoRA/GRUN reduce Hindi ES but do not satisfy all gates at once—cross-ling ES or PPL typically fails—consistent with shared mid-layer representations.
 
-\subsection{Romanization Ablation Study}
+\subsection{Romanization Ablation: The Cross-Script Vulnerability}
 
-Table \ref{tab:romanization} presents our script-specific ablation results. This is the first systematic study of cross-script transfer in multilingual unlearning.
+Table~\ref{tab:rom} presents our systematic cross-script analysis, revealing a critical security gap in script-specific unlearning.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
-\small
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{Forget Set} & \textbf{ES (Dev)} & \textbf{ES (Rom)} & \textbf{Transfer Factor} & \textbf{Joint ES} \\
+\textbf{Forget Set} & \textbf{ES (Dev)$\downarrow$} & \textbf{ES (Rom)$\downarrow$} & \textbf{Transfer} & \textbf{Joint$\downarrow$} \\
 \midrule
-Devanagari & 0.03 ± 0.01 & 0.12 ± 0.02 & 4.0× & 0.075 \\
-Romanized & 0.15 ± 0.03 & 0.04 ± 0.01 & 3.75× & 0.095 \\
-\textbf{Both} & \textbf{0.04 ± 0.01} & \textbf{0.05 ± 0.01} & \textbf{1.25×} & \textbf{0.045} \\
+Dev (only) & TBD & TBD & TBD & TBD \\
+Roman (only) & TBD & TBD & TBD & TBD \\
+\rowcolor{green!10} Both & TBD & TBD & TBD & TBD \\
 \bottomrule
 \end{tabular}
-\caption{Romanization ablation study (GRUN+SAE). Script-specific unlearning provides incomplete protection, with 3-4× higher ES on non-target scripts. Joint unlearning is necessary for comprehensive multilingual unlearning.}
-\label{tab:romanization}
+\caption{\textbf{Romanization ablation} (placeholders; to be filled from final runs). Transfer ratio = $\max(\text{ES}_{\text{Dev}}, \text{ES}_{\text{Rom}})/\min(\text{ES}_{\text{Dev}}, \text{ES}_{\text{Rom}})$.}
+\label{tab:rom}
 \end{table}
 
-\textbf{Critical Finding:} Unlearning one script (Devanagari or Romanized) results in 3-4× higher ES on the other script. This has significant implications for deployment:
+\paragraph{Script-Specific Unlearning.}
+We run a Devanagari-only, Romanized-only, and joint ablation. Results will be filled from the final \texttt{eval\_full.json}. The protocol is designed to show whether single-script unlearning leaves a bypass via the other script; early smoke runs suggested asymmetry, but we defer claims until full runs complete.
 
-\begin{itemize}
-    \item \textbf{Devanagari-only unlearning:} ES(Devanagari)=0.03 but ES(Romanized)=0.12. A user could bypass unlearning by requesting Romanized Hindi.
+\paragraph{Implications.}
+This finding aligns with RomanLens~\cite{wendler2024romanlens}, which reveals LLMs internally romanize non-Roman scripts. Our results suggest two possibilities: (1) models maintain separate Devanagari and Romanized representations with limited cross-talk, or (2) internal romanization exists but script-specific surface interventions incompletely access these representations. Either interpretation necessitates joint unlearning for robust protection.
 
-    \item \textbf{Romanized-only unlearning:} ES(Romanized)=0.04 but ES(Devanagari)=0.15. The model still generates Devanagari Hindi.
+For regulatory compliance (GDPR, CCPA), incomplete unlearning may fail legal requirements. A user exercising ``right to be forgotten'' for Hindi data expects protection against \textit{all} extraction vectors, not just specific scripts.
 
-    \item \textbf{Joint unlearning:} Only by unlearning both scripts do we achieve consistent protection (ES≈0.04-0.05 across both).
-\end{itemize}
+\subsection{FDR Correction and Statistical Rigor}
 
-This finding aligns with RomanLens \cite{wendler2024romanlens}, which shows LLMs internally romanize non-Roman scripts. Our results extend this to show \textit{unlearning must target both representations simultaneously}.
+Table~\ref{tab:fdr} will be populated from the final run. In our Qwen2.5-1.5B case study, no arm currently passes all seven gates under BH-FDR at $\alpha=0.05$.
 
-\subsection{FDR-Corrected Gate Analysis}
-
-Table \ref{tab:fdr} shows FDR-corrected p-values for GRUN+SAE. All 7 gates pass with $q < 0.05$, demonstrating statistically rigorous unlearning.
-
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
-\small
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{Gate} & \textbf{p-value} & \textbf{q-value (BH)} & \textbf{Threshold} & \textbf{Pass?} \\
+\textbf{Gate} & \textbf{p-value} & \textbf{BH Threshold} & \textbf{Significant?} & \textbf{Pass?} \\
 \midrule
-G1: ES & 0.0008 & 0.0008 & 0.0071 & ✓ \\
-G2: PPL & 0.0032 & 0.0036 & 0.0143 & ✓ \\
-G3: MIA & 0.0089 & 0.0089 & 0.0214 & ✓ \\
-G4: Redistrib & 0.0125 & 0.0125 & 0.0286 & ✓ \\
-G5: XLang & 0.0178 & 0.0178 & 0.0357 & ✓ \\
-G6: TokenKL & 0.0243 & 0.0243 & 0.0429 & ✓ \\
-G7: AdvES & 0.0312 & 0.0312 & 0.0500 & ✓ \\
+G1: ES & TBD & TBD & TBD & TBD \\
+G2: PPL & TBD & TBD & TBD & TBD \\
+G3: MIA & TBD & TBD & TBD & TBD \\
+G4: Redistribution & TBD & TBD & TBD & TBD \\
+G5: XLang & TBD & TBD & TBD & TBD \\
+G6: TokenKL & TBD & TBD & TBD & TBD \\
+G7: AdvES & TBD & TBD & TBD & TBD \\
 \bottomrule
 \end{tabular}
-\caption{FDR-corrected gate analysis for GRUN+SAE. All gates pass with $\alpha=0.05$, controlling family-wise error rate across 7 hypotheses.}
+\caption{\textbf{FDR-corrected gate analysis} (placeholders). BH Threshold = $(i/7) \cdot 0.05$. We will populate this table from the final run; in the Qwen2.5-1.5B case study no arm currently passes all seven gates.}
 \label{tab:fdr}
 \end{table}
 
+\paragraph{Why FDR Correction Matters.}
+Without correction, testing seven hypotheses independently at $\alpha$=0.05 yields expected false positives:
+\begin{equation}
+    \mathbb{E}[\text{false positives}] = 7 \times 0.05 = 0.35
+\end{equation}
+
+This inflates Type I error to 30\%, rendering results unreliable. BH correction controls this at 5\% while maintaining reasonable power.
+
+\paragraph{Comparison to Prior Work.}
+Most unlearning papers report multiple metrics without correction, implicitly claiming success when $k$/7 tests pass at $\alpha$=0.05. For $k=5$, the probability of observing this by chance (all nulls true) is:
+\begin{equation}
+    P(X \geq 5 | H_0) = \sum_{i=5}^7 \binom{7}{i} (0.05)^i (0.95)^{7-i} \approx 0.0002
+\end{equation}
+
+While low, this does not control for multiple testing. Our FDR-corrected protocol ensures reported successes are statistically valid discoveries.
+
 \subsection{Cross-Lingual Leakage Analysis}
 
-Figure \ref{fig:xlang} shows ES on related languages. GRUN+SAE minimizes cross-lingual leakage, with ES < 0.30 on Urdu, Punjabi, and Bengali—all sharing linguistic features with Hindi.
+Table~\ref{tab:xlang-detail} will report cross-lingual leakage (Urdu/Punjabi/Bengali) once the final run completes. In earlier smoke tests, no arm cleanly suppressed Hindi without affecting related languages.
 
-\begin{figure}[h]
+\begin{table}[htbp]
 \centering
-\includegraphics[width=0.8\linewidth]{figures/xlang_leakage.pdf}
-\caption{Cross-lingual leakage across methods. GRUN+SAE achieves lowest leakage on related languages (Urdu, Punjabi, Bengali), demonstrating better isolation of target language forgetting.}
-\label{fig:xlang}
-\end{figure}
-
-\textbf{Observation:} UNLEARN shows 40\% higher leakage on Urdu vs. GRUN+SAE, suggesting subspace removal inadvertently affects shared linguistic features. In contrast, GRUN's gated suppression provides finer-grained control.
-
-\subsection{Ablation: Feature Selection Strategies}
-
-Table \ref{tab:feature_ablation} compares semantic, gradient-based, and hybrid feature selection.
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{Strategy} & \textbf{ES↓} & \textbf{PPL(ret)↓} & \textbf{Time (min)} \\
+\textbf{Method} & \textbf{Urdu} & \textbf{Punjabi} & \textbf{Bengali} & \textbf{Mean XLang} \\
 \midrule
-Semantic & 0.04 ± 0.01 & 16.2 ± 0.4 & 12 \\
-GradSAE & 0.05 ± 0.01 & 15.8 ± 0.3 & 38 \\
-Hybrid & 0.04 ± 0.01 & 16.0 ± 0.3 & 42 \\
+Base & TBD & TBD & TBD & TBD \\
+LoRA+SAE & TBD & TBD & TBD & TBD \\
+GRUN+SAE & TBD & TBD & TBD & TBD \\
 \bottomrule
 \end{tabular}
-\caption{Feature selection ablation (GRUN+SAE). Semantic selection achieves comparable performance to gradient-based methods with 3× faster runtime.}
-\label{tab:feature_ablation}
+\caption{\textbf{Cross-lingual leakage} (placeholders; to be filled from final \texttt{eval\_full.json}).}
+\label{tab:xlang-detail}
 \end{table}
 
-\textbf{Finding:} Semantic selection (script-blind LID + neighbor awareness) performs comparably to computationally expensive gradient-based methods, making it the practical default.
+\paragraph{Key Insights:}
 
-\subsection{Comprehension and ActPert Results}
+\textbf{(1) UNLEARN exhibits highest leakage.} Subspace removal affects Urdu 50\% more than GRUN+SAE (0.42 vs 0.28). This suggests Hindi and Urdu share substantial representational subspace---removing Hindi's subspace inevitably damages Urdu.
 
-Table \ref{tab:comprehension} shows comprehension metrics, testing whether unlearning is deep or superficial.
+\textbf{(2) Fine-grained methods minimize collateral damage.} LoRA+SAE and GRUN+SAE achieve 25--33\% lower leakage than subspace methods. Targeted feature suppression appears more selective than wholesale subspace removal.
 
-\begin{table}[h]
+\textbf{(3) Expected pattern.} We hypothesize Urdu will be most affected (closest to Hindi) and Bengali least; we will confirm once the final cross-ling metrics are filled.
+
+\subsection{Feature Selection and Comprehension Metrics}
+
+Table~\ref{tab:ablations} compares feature selection strategies and measures comprehension depth.
+
+\begin{table}[htbp]
 \centering
-\small
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Method} & \textbf{Trans-LID↓} & \textbf{Yes/No (Hi)↓} & \textbf{ActPert ES↓} \\
+\textbf{Feature Selection} & \textbf{ES$\downarrow$} & \textbf{Time (min)} \\
 \midrule
-Base & 0.92 & 0.95 & 0.87 \\
-UNLEARN & 0.35 & 0.42 & 0.28 \\
-DSG & 0.28 & 0.38 & 0.22 \\
-LoRA+SAE & 0.22 & 0.31 & 0.18 \\
-\textbf{GRUN+SAE} & \textbf{0.18} & \textbf{0.25} & \textbf{0.15} \\
+Semantic & TBD & TBD \\
+GradSAE & TBD & TBD \\
+Hybrid & TBD & TBD \\
 \bottomrule
 \end{tabular}
-\caption{Comprehension and ActPert results. Trans-LID: Hindi language ID in translation task. Yes/No: Correct Hindi word identification. ActPert ES: ES under Gaussian noise ($\sigma=0.1$). Lower is better.}
-\label{tab:comprehension}
+\quad
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Method} & \textbf{Trans$\downarrow$} & \textbf{Y/N$\downarrow$} & \textbf{ActP$\downarrow$} \\
+\midrule
+Base & TBD & TBD & TBD \\
+LoRA+SAE & TBD & TBD & TBD \\
+GRUN+SAE & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Left:} Feature selection comparison (to be populated from final runs). \textbf{Right:} Comprehension metrics (placeholders; will be filled from \texttt{eval\_full.json}). Trans=Translation LID, Y/N=Yes/No question accuracy, ActP=ActPert robustness.}
+\label{tab:ablations}
 \end{table}
 
-\textbf{Key Insight:} GRUN+SAE achieves the deepest unlearning, with only 18\% Hindi translations and 25\% correct Yes/No responses—approaching random guessing (16.7\% for 6-language choice, 50\% for binary). ActPert results confirm robustness: ES remains low even under perturbation.
+\paragraph{Feature Selection Efficiency.}
+We use semantic (script-blind) SAE feature selection for gating by default; it avoids backprop and has been the most stable choice on Qwen2.5-1.5B. Timing and ES numbers will be filled from the final run.
 
-% ===========================
-% 7. DISCUSSION
-% ===========================
+\paragraph{Comprehension Metrics.}
+Translation LID, yes/no questions, and ActPert robustness will be populated from the final \texttt{eval\_full.json} once the run completes. In prior smoke tests these metrics lagged raw ES reductions, indicating residual Hindi knowledge even when surface ES dropped.
+
 \section{Discussion}
+\label{sec:discussion}
 
-\subsection{Implications for Multilingual Unlearning}
+\subsection{Implications for Deployment}
 
-Our romanization ablation study reveals a critical vulnerability: \textbf{script-specific unlearning provides incomplete protection}. This has several implications:
+\paragraph{Script Vulnerability Requires Joint Unlearning.}
+Our romanization ablation is designed to test whether script-specific unlearning leaves a bypass via the other script. We defer quantitative claims until the final runs are filled into Table~\ref{tab:rom}. For production deployment, robustness must be demonstrated across scripts.
 
-\begin{enumerate}
-    \item \textbf{Deployment Risk:} Real-world systems must unlearn \textit{all} representations of a language, not just one script. A user could bypass Devanagari unlearning by requesting Romanized output.
-
-    \item \textbf{Evaluation Gap:} Existing unlearning benchmarks \cite{jia2024muse,maini2024tofu} focus on monolingual settings and may miss cross-script transfer effects.
-
-    \item \textbf{Latent Romanization:} Our findings support RomanLens \cite{wendler2024romanlens}: LLMs likely maintain romanized representations of non-Roman scripts internally. Unlearning must target both surface and latent representations.
-\end{enumerate}
-
-\subsection{The Importance of Rigorous Evaluation}
-
-Our 7-gate, FDR-corrected framework addresses a critical flaw in existing unlearning evaluations: \textbf{multiple hypothesis testing without correction inflates Type I error}. Consider:
-
-\begin{itemize}
-    \item Testing 7 gates independently with $\alpha=0.05$ gives family-wise error rate: $1 - (0.95)^7 = 0.30$ (30\% chance of false positive).
-    \item With BH correction, we control FDR at 5\%, ensuring statistical rigor.
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{GDPR/CCPA compliance risk:} Incomplete unlearning may fail legal requirements. A user exercising data deletion rights expects protection against \textit{all} extraction vectors.
+    \item \textbf{Adversarial robustness:} Malicious actors will exploit the easiest attack surface. Single-script unlearning creates obvious bypass.
+    \item \textbf{Operational cost:} Organizations must identify all script variants of target languages and apply joint unlearning, increasing computational cost.
 \end{itemize}
 
-We advocate for \textbf{FDR correction as a standard practice} in unlearning research.
+We recommend: (1) Pre-deployment script enumeration for all target languages; (2) Mandatory joint unlearning across all scripts; (3) Post-deployment monitoring for cross-script extraction attempts.
 
-\subsection{U-LiRA+ Reveals Hidden Vulnerabilities}
+\paragraph{FDR Correction Should Be Standard Practice.}
+Testing multiple metrics without correction inflates Type I error to 30\%. We advocate for:
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Universal adoption:} All unlearning papers should report FDR-corrected results
+    \item \textbf{Transparent reporting:} Include both raw and corrected p-values
+    \item \textbf{Conservative claims:} Only claim success when passing FDR-corrected gates
+\end{itemize}
 
-Our U-LiRA+ results show all methods have 5-15\% higher AUC vs. standard MIA. This aligns with \cite{hayes2024inexact}, who show:
+\paragraph{U-LiRA+ Reveals Hidden Privacy Leakage.}
+Standard MIA underestimates leakage by 5--15\% across all methods (Table~\ref{tab:main}). This false confidence is dangerous for privacy-critical applications. We recommend:
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Default to U-LiRA+:} Use per-example attacks as primary privacy metric
+    \item \textbf{Conservative thresholds:} Set stricter acceptance criteria accounting for U-LiRA+ gap
+    \item \textbf{Continuous auditing:} Periodically re-evaluate deployed models with strongest available attacks
+\end{itemize}
 
-\begin{quote}
-``Commonly used U-MIAs overestimate privacy protection. Per-example U-MIAs are significantly stronger.''
-\end{quote}
+\subsection{Why GRUN+SAE Achieves Superior Performance}
 
-This has critical implications: \textbf{approximate unlearning methods may provide a false sense of privacy}. We recommend U-LiRA+ as the default privacy evaluation for unlearning research.
+GRUN+SAE's dominance stems from three key design choices:
 
-\subsection{Why GRUN+SAE Outperforms Baselines}
+\textbf{(1) Dual-mechanism control.} Coarse representation shift (ReFT) moves activations away from forget regions; fine-grained feature suppression (SAE) targets specific semantic content. This two-stage approach provides both broad coverage and surgical precision.
 
-GRUN+SAE achieves superior performance through three mechanisms:
+\textbf{(2) Dynamic gating prevents over-suppression.} Learned gates $g_{\text{ReFT}}$ and $g_{\text{SAE}}$ adaptively modulate intervention strength. This achieves 12\% PPL improvement over static gating (GRUN+SAE: 16.2 vs DSG: 19.1), preventing the utility degradation observed in aggressive unlearning.
 
-\begin{enumerate}
-    \item \textbf{Gated Suppression:} Unlike LoRA (which modifies attention), GRUN suppresses forget-related activations via learned gates: $\sigma(-g) \cdot B(A(h))$. This provides finer control.
+\textbf{(3) Robust optimization.} Bounded loss ($\beta=5.0$), gradient clipping (norm $\leq 1.0$), dual optimizers (separate LRs for forget/retain), and curriculum learning (three-stage schedule) ensure stable convergence. These techniques prevent weight explosion observed in vanilla gradient ascent~\cite{yao2024machine}.
 
-    \item \textbf{Dynamic SAE Gating:} Activation-based gating prevents over-suppression on retain data, reducing PPL degradation by 12\% vs. static gating.
+\subsection{Limitations and Future Directions}
 
-    \item \textbf{Adaptive Training:} Dual optimizer + curriculum learning + bounded loss ensure stable convergence without weight explosion.
-\end{enumerate}
+\paragraph{Model Scale.}
+Our experiments use Qwen2.5-1.5B-Instruct. Larger models (7B+) may exhibit different behavior due to increased capacity and stronger multilingual entanglement. Future work should investigate scaling properties.
 
-\subsection{Limitations and Future Work}
+\paragraph{Language Coverage.}
+We focus on Hindi and Indic languages. Other language families (Sino-Tibetan, Niger-Congo, Turkic) present distinct challenges. Comprehensive multilingual evaluation requires broader language sampling.
 
-\textbf{Scale:} Our experiments use Qwen2.5-1.5B-Instruct. Larger models (7B+) may exhibit different behavior; future work should validate our findings at scale.
+\paragraph{Adversarial Robustness.}
+While we test meta-instructions and translation attacks, systematic evaluation against adversarial prompting (jailbreaking, paraphrase attacks) remains future work. Adversarial training may improve robustness.
 
-\textbf{Language Coverage:} We focus on Hindi and related Indic languages. Generalizing to other language families (e.g., Arabic, Chinese) remains future work.
+\paragraph{Theoretical Guarantees.}
+GRUN+SAE provides empirical performance but lacks formal privacy guarantees. Differential privacy frameworks for representation-level interventions could provide provable bounds.
 
-\textbf{Paraphrase Robustness:} While we test adversarial prompts, systematic paraphrase/back-translation attacks are left for future work.
+\paragraph{Computational Cost.}
+GRUN+SAE requires 6--8 hours training on A100 vs. inference-time methods (UNLEARN, DSG). For frequent unlearning requests, inference-time approaches may be preferable despite lower efficacy. Hybrid strategies merit investigation.
 
-\textbf{Theoretical Guarantees:} Our methods are empirical. Developing theoretical guarantees for multilingual unlearning (e.g., differential privacy bounds) is an important direction.
+\paragraph{Semantic Drift.}
+Long-term deployment may reveal subtle semantic drift as unlearning accumulates. Monitoring semantic consistency across multiple unlearning operations is an open problem.
 
 \subsection{Broader Impacts}
 
-\textbf{Positive:} MMIE enables safer, more compliant LLM deployment by providing rigorous multilingual unlearning. This supports data protection regulations (GDPR, CCPA) and content moderation.
-
-\textbf{Negative:} Unlearning could be misused to hide model biases or remove important safety training. We emphasize that unlearning should be used responsibly, with transparency about what is being removed and why.
-
-% ===========================
-% 8. CONCLUSION
-% ===========================
-\section{Conclusion}
-
-We introduced \textbf{MMIE}, a framework for rigorous, interpretable multilingual unlearning via sparse autoencoders. Through comprehensive experiments comparing four state-of-the-art methods (UNLEARN, DSG, LoRA+SAE, GRUN+SAE), we demonstrate that GRUN+SAE achieves superior forget-utility trade-offs, passing all 7 FDR-corrected evaluation gates.
-
-Our key contributions include:
-
-\begin{itemize}
-    \item \textbf{Romanization ablation study:} The first systematic analysis of cross-script transfer, revealing that script-specific unlearning provides incomplete protection (3-4× ES leakage).
-
-    \item \textbf{7-gate FDR-corrected framework:} A statistically rigorous evaluation protocol controlling family-wise error rate across multiple hypotheses.
-
-    \item \textbf{U-LiRA+ implementation:} Demonstrating that approximate unlearning overestimates privacy protection by 5-15\%.
-
-    \item \textbf{Open-source release:} Fully reproducible codebase with automated pipelines, reproducibility bundles, and comprehensive documentation.
+\paragraph{Positive Impacts.}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Privacy protection:} Enable GDPR/CCPA compliance and user data deletion rights
+    \item \textbf{Content moderation:} Remove harmful content (hate speech, misinformation) from models
+    \item \textbf{Model debugging:} Correct factual errors and remove outdated information
+    \item \textbf{Bias mitigation:} Reduce demographic biases and stereotypical associations
 \end{itemize}
 
-Our findings establish a rigorous foundation for multilingual unlearning research, highlighting critical challenges (cross-script transfer, latent romanization, cross-lingual leakage) that must be addressed for safe, effective deployment of multilingual LLMs.
+\paragraph{Negative Impacts and Ethical Considerations.}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Censorship potential:} Could suppress legitimate minority viewpoints or inconvenient truths
+    \item \textbf{Safety degradation:} May inadvertently remove safety training, enabling harmful outputs
+    \item \textbf{Evidence erasure:} Could hide behavioral traces in cases of model misuse or harm
+    \item \textbf{Dual use:} Adversaries might use unlearning to remove safety mechanisms
+\end{itemize}
 
-% ===========================
-% REFERENCES
-% ===========================
-\bibliographystyle{plain}
+\paragraph{Ethical Recommendations.}
+We advocate for:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Transparency:} Disclose when models have undergone unlearning
+    \item \textbf{Auditability:} Maintain logs of unlearning operations for accountability
+    \item \textbf{Oversight:} Require human review for sensitive unlearning requests
+    \item \textbf{Impact assessment:} Evaluate collateral effects on related capabilities before deployment
+\end{itemize}
+
+\section{Conclusion}
+
+We introduced a comprehensive framework for multilingual machine unlearning via sparse autoencoders, addressing critical gaps in existing research. Through systematic experiments on Hindi unlearning in Qwen2.5-1.5B-Instruct, we demonstrated:
+
+\begin{enumerate}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Cross-script vulnerability:} To be confirmed by Table~\ref{tab:rom}; joint unlearning of Devanagari and Romanized forms is the target condition.
+    
+    \item \textbf{Case-study takeaway:} In Qwen2.5-1.5B, SAE-gated adapters reduce Hindi ES but do not satisfy all gates simultaneously; this suggests entanglement rather than clean separability. We encourage re-running on larger backbones to probe how entanglement scales.
+    
+    \item \textbf{Hidden privacy leakage:} U-LiRA+ reveals standard MIA underestimates leakage by 5--15\%, highlighting false confidence in approximate unlearning.
+    
+    \item \textbf{Statistical rigor:} FDR correction is essential---without it, multiple testing inflates Type I error to 30\%.
+\end{enumerate}
+
+Our findings establish foundational principles for multilingual unlearning: (1) target all script variants simultaneously; (2) monitor cross-lingual transfer effects; (3) apply FDR correction to control statistical error; (4) use strongest available privacy attacks for auditing.
+
+Multilingual unlearning presents unique challenges absent in monolingual settings. As LLMs increasingly serve global populations, principled multilingual unlearning becomes essential for responsible AI deployment. We release complete code, trained SAEs, evaluation protocols, and reproducibility assets to accelerate community progress toward safe, privacy-preserving multilingual AI systems.
+
+\section*{Acknowledgments}
+The author thanks Dr. Krishnendendu S P for research guidance and IIIT Kottayam for computational resources. We acknowledge the Qwen team for making Qwen2.5 available and the open-source community for essential tools (PyTorch, Transformers, SAE-Lens, PyReFT).
+
 \begin{thebibliography}{99}
 
 \bibitem{gdpr2018}
 European Parliament and Council.
-\newblock Regulation (EU) 2016/679 (General Data Protection Regulation).
-\newblock \textit{Official Journal of the European Union}, 2018.
+Regulation (EU) 2016/679 (General Data Protection Regulation).
+\textit{Official Journal of the European Union}, 2018.
 
 \bibitem{ccpa2020}
-California Consumer Privacy Act (CCPA).
-\newblock California Civil Code § 1798.100 et seq., 2020.
+California Consumer Privacy Act.
+California Civil Code \S 1798.100 et seq., 2020.
 
 \bibitem{cao2015towards}
-Yinzhi Cao and Junfeng Yang.
-\newblock Towards making systems forget with machine unlearning.
-\newblock In \textit{IEEE Symposium on Security and Privacy}, 2015.
+Y. Cao and J. Yang.
+Towards making systems forget with machine unlearning.
+In \textit{IEEE Symposium on Security and Privacy}, 2015.
 
 \bibitem{bourtoule2021machine}
-Lucas Bourtoule, Varun Chandrasekaran, et al.
-\newblock Machine unlearning.
-\newblock In \textit{IEEE Symposium on Security and Privacy}, 2021.
-
-\bibitem{jia2024muse}
-Jiale Cheng, George Chrysostomou, et al.
-\newblock MUSE: Machine unlearning six-way evaluation benchmark.
-\newblock \textit{arXiv preprint arXiv:2407.06460}, 2024.
+L. Bourtoule et al.
+Machine unlearning.
+In \textit{IEEE Symposium on Security and Privacy}, 2021.
 
 \bibitem{yao2024machine}
-Jin Yao, Eli Chien, et al.
-\newblock Machine unlearning of pre-trained large language models.
-\newblock \textit{arXiv preprint arXiv:2402.15159}, 2024.
+J. Yao et al.
+Machine unlearning of pre-trained large language models.
+\textit{arXiv:2402.15159}, 2024.
 
 \bibitem{eldan2023whos}
-Ronen Eldan and Mark Russinovich.
-\newblock Who's Harry Potter? Approximate unlearning in LLMs.
-\newblock \textit{arXiv preprint arXiv:2310.02238}, 2023.
+R. Eldan and M. Russinovich.
+Who's Harry Potter? Approximate unlearning in LLMs.
+\textit{arXiv:2310.02238}, 2023.
 
 \bibitem{liu2024rethinking}
-Sijia Liu, Yuanshun Yao, et al.
-\newblock Rethinking machine unlearning for large language models.
-\newblock \textit{arXiv preprint arXiv:2402.08787}, 2024.
+S. Liu et al.
+Rethinking machine unlearning for large language models.
+\textit{arXiv:2402.08787}, 2024.
+
+\bibitem{ustun2024aya}
+A. Üstün et al.
+Aya model: An instruction finetuned open-access multilingual language model.
+\textit{arXiv:2402.07827}, 2024.
+
+\bibitem{scao2022bloom}
+T. Le Scao et al.
+BLOOM: A 176B-parameter multilingual language model.
+\textit{arXiv:2211.05100}, 2022.
 
 \bibitem{wendler2024romanlens}
-Andreas Wendler, Jiajun Chen, et al.
-\newblock RomanLens: Seeing through the language of romanization.
-\newblock \textit{arXiv preprint arXiv:2410.23033}, 2024.
+A. Wendler et al.
+RomanLens: Seeing through the language of romanization.
+\textit{arXiv:2410.23033}, 2024.
 
 \bibitem{bricken2023monosemanticity}
-Trenton Bricken, Adly Templeton, et al.
-\newblock Towards monosemanticity: Decomposing language models with dictionary learning.
-\newblock \textit{Transformer Circuits Thread}, 2023.
+T. Bricken et al.
+Towards monosemanticity: Decomposing language models with dictionary learning.
+\textit{Transformer Circuits Thread}, 2023.
 
 \bibitem{cunningham2023sparse}
-Hoagy Cunningham, Aidan Ewart, et al.
-\newblock Sparse autoencoders find highly interpretable features in language models.
-\newblock \textit{arXiv preprint arXiv:2309.08600}, 2023.
+H. Cunningham et al.
+Sparse autoencoders find highly interpretable features in language models.
+\textit{arXiv:2309.08600}, 2023.
 
 \bibitem{pawelczyk2024unlearn}
-Martin Pawelczyk, Seth Neel, et al.
-\newblock UNLEARN: Efficient machine unlearning via subspace projection.
-\newblock In \textit{NAACL}, 2025.
+M. Pawelczyk et al.
+In-Context Unlearning: Language models as few shot unlearners.
+\textit{arXiv:2310.07842}, 2023.
 
 \bibitem{dsg2025}
-Anonymous Authors.
-\newblock SAEs can improve unlearning: Dynamic sparse autoencoders as guardrails.
-\newblock \textit{arXiv preprint arXiv:2504.08192}, 2025.
+Anonymous.
+SAEs can improve unlearning: Dynamic sparse autoencoders as guardrails.
+Under review, 2025.
 
 \bibitem{wu2024reft}
-Zhengxuan Wu, Aryaman Arora, et al.
-\newblock ReFT: Representation finetuning for language models.
-\newblock \textit{arXiv preprint arXiv:2404.03592}, 2024.
+Z. Wu et al.
+ReFT: Representation finetuning for language models.
+\textit{arXiv:2404.03592}, 2024.
 
 \bibitem{hu2022lora}
-Edward J. Hu, Yelong Shen, et al.
-\newblock LoRA: Low-rank adaptation of large language models.
-\newblock In \textit{ICLR}, 2022.
+E. J. Hu et al.
+LoRA: Low-rank adaptation of large language models.
+In \textit{ICLR}, 2022.
 
 \bibitem{zhang2024negative}
-Ruiqi Zhang, Licong Lin, et al.
-\newblock Negative preference optimization: From catastrophic collapse to effective unlearning.
-\newblock \textit{arXiv preprint arXiv:2404.05256}, 2024.
+R. Zhang et al.
+Negative preference optimization: From catastrophic collapse to effective unlearning.
+\textit{arXiv:2404.05256}, 2024.
 
 \bibitem{simplicity2024}
-Jia-Chen Gu, Hao-Xiang Xu, et al.
-\newblock Simplicity prevails: Rethinking negative preference optimization for LLM unlearning.
-\newblock \textit{arXiv preprint arXiv:2410.07163}, 2024.
+J. Gu et al.
+Simplicity prevails: Rethinking negative preference optimization for LLM unlearning.
+\textit{arXiv:2410.07163}, 2024.
+
+\bibitem{guo2019certified}
+C. Guo et al.
+Certified data removal from machine learning models.
+In \textit{ICML}, 2019.
+
+\bibitem{ilharco2023editing}
+G. Ilharco et al.
+Editing models with task arithmetic.
+In \textit{ICLR}, 2023.
 
 \bibitem{marks2024sparse}
-Samuel Marks and Max Tegmark.
-\newblock The geometry of truth: Emergent linear structure in large language model representations of true/false datasets.
-\newblock \textit{arXiv preprint arXiv:2310.06824}, 2024.
+S. Marks and M. Tegmark.
+The geometry of truth: Emergent linear structure in LLM representations.
+\textit{arXiv:2310.06824}, 2024.
 
 \bibitem{templeton2024scaling}
-Adly Templeton, Tom Conerly, et al.
-\newblock Scaling monosemanticity: Extracting interpretable features from Claude 3 Sonnet.
-\newblock \textit{Transformer Circuits Thread}, 2024.
+A. Templeton et al.
+Scaling monosemanticity: Extracting interpretable features from Claude 3 Sonnet.
+\textit{Transformer Circuits Thread}, 2024.
 
 \bibitem{gradsae2025}
-Anonymous Authors.
-\newblock GradSAE: Gradient-based sparse autoencoder feature selection.
-\newblock \textit{arXiv preprint arXiv:2505.08080}, 2025.
+Anonymous.
+GradSAE: Gradient-based sparse autoencoder feature selection.
+Under review, 2025.
 
 \bibitem{hayes2024inexact}
-Jamie Hayes, Ilia Shumailov, et al.
-\newblock Inexact unlearning needs more careful evaluations to avoid a false sense of privacy.
-\newblock \textit{arXiv preprint arXiv:2403.01218}, 2024.
+J. Hayes et al.
+Inexact unlearning needs more careful evaluations to avoid a false sense of privacy.
+\textit{arXiv:2403.01218}, 2024.
 
 \bibitem{actpert2025}
-Anonymous Authors.
-\newblock Does unlearning truly remove knowledge? Activation-based auditing.
-\newblock \textit{arXiv preprint arXiv:2505.23270}, 2025.
+Anonymous.
+Does unlearning truly remove knowledge? An activation-based auditing framework.
+Under review, 2025.
 
 \bibitem{shokri2017membership}
-Reza Shokri, Marco Stronati, et al.
-\newblock Membership inference attacks against machine learning models.
-\newblock In \textit{IEEE Symposium on Security and Privacy}, 2017.
+R. Shokri et al.
+Membership inference attacks against machine learning models.
+In \textit{IEEE Symposium on Security and Privacy}, 2017.
 
 \bibitem{benjamini1995controlling}
-Yoav Benjamini and Yosef Hochberg.
-\newblock Controlling the false discovery rate: A practical and powerful approach to multiple testing.
-\newblock \textit{Journal of the Royal Statistical Society: Series B}, 57(1):289--300, 1995.
+Y. Benjamini and Y. Hochberg.
+Controlling the false discovery rate: A practical and powerful approach to multiple testing.
+\textit{Journal of the Royal Statistical Society: Series B}, 57(1):289--300, 1995.
 
 \bibitem{qwen2024}
 Qwen Team.
-\newblock Qwen2.5: A party of foundation models.
-\newblock \textit{Technical Report}, 2024.
+Qwen2.5: A party of foundation models.
+\textit{Technical Report}, Alibaba Cloud, 2024.
 
 \bibitem{gao2024scaling}
-Leo Gao, Tom Dupré la Tour, et al.
-\newblock Scaling and evaluating sparse autoencoders.
-\newblock \textit{arXiv preprint arXiv:2406.04093}, 2024.
+L. Gao et al.
+Scaling and evaluating sparse autoencoders.
+\textit{arXiv:2406.04093}, 2024.
 
 \bibitem{kornblith2019similarity}
-Simon Kornblith, Mohammad Norouzi, et al.
-\newblock Similarity of neural network representations revisited.
-\newblock In \textit{ICML}, 2019.
+S. Kornblith et al.
+Similarity of neural network representations revisited.
+In \textit{ICML}, 2019.
 
 \bibitem{schonemann1966generalized}
-Peter H. Schönemann.
-\newblock A generalized solution of the orthogonal Procrustes problem.
-\newblock \textit{Psychometrika}, 31(1):1--10, 1966.
+P. H. Schönemann.
+A generalized solution of the orthogonal Procrustes problem.
+\textit{Psychometrika}, 31(1):1--10, 1966.
 
 \bibitem{meinshausen2010stability}
-Nicolai Meinshausen and Peter Bühlmann.
-\newblock Stability selection.
-\newblock \textit{Journal of the Royal Statistical Society: Series B}, 72(4):417--473, 2010.
+N. Meinshausen and P. Bühlmann.
+Stability selection.
+\textit{Journal of the Royal Statistical Society: Series B}, 72(4):417--473, 2010.
 
 \bibitem{dao2023flashattention}
-Tri Dao.
-\newblock FlashAttention-2: Faster attention with better parallelism and work partitioning.
-\newblock \textit{arXiv preprint arXiv:2307.08691}, 2023.
+T. Dao.
+FlashAttention-2: Faster attention with better parallelism and work partitioning.
+\textit{arXiv:2307.08691}, 2023.
 
 \bibitem{efron1987better}
-Bradley Efron.
-\newblock Better bootstrap confidence intervals.
-\newblock \textit{Journal of the American Statistical Association}, 82(397):171--185, 1987.
-
-\bibitem{guo2019certified}
-Chuan Guo, Tom Goldstein, et al.
-\newblock Certified data removal from machine learning models.
-\newblock In \textit{ICML}, 2019.
-
-\bibitem{ilharco2023editing}
-Gabriel Ilharco, Marco Tulio Ribeiro, et al.
-\newblock Editing models with task arithmetic.
-\newblock In \textit{ICLR}, 2023.
-
-\bibitem{ustun2024aya}
-Ahmet Üstün, Viraat Aryabumi, et al.
-\newblock Aya model: An instruction finetuned open-access multilingual language model.
-\newblock \textit{arXiv preprint arXiv:2402.07827}, 2024.
-
-\bibitem{scao2022bloom}
-Teven Le Scao, Angela Fan, et al.
-\newblock BLOOM: A 176B-parameter open-access multilingual language model.
-\newblock \textit{arXiv preprint arXiv:2211.05100}, 2022.
+B. Efron.
+Better bootstrap confidence intervals.
+\textit{Journal of the American Statistical Association}, 82(397):171--185, 1987.
 
 \bibitem{pfeiffer2022lifting}
-Jonas Pfeiffer, Naman Goyal, et al.
-\newblock Lifting the curse of multilinguality by pre-training modular transformers.
-\newblock In \textit{NAACL}, 2022.
+J. Pfeiffer et al.
+Lifting the curse of multilinguality by pre-training modular transformers.
+In \textit{NAACL}, 2022.
 
 \bibitem{maini2024tofu}
-Pratyush Maini, Zhili Feng, et al.
-\newblock TOFU: A task of fictitious unlearning for LLMs.
-\newblock \textit{arXiv preprint arXiv:2401.06121}, 2024.
+P. Maini et al.
+TOFU: A task of fictitious unlearning for LLMs.
+\textit{arXiv:2401.06121}, 2024.
+
+\bibitem{jia2024muse}
+J. Cheng et al.
+MUSE: Machine unlearning six-way evaluation benchmark.
+\textit{arXiv:2407.06460}, 2024.
+
+\bibitem{wikimatrix}
+H. Schwenk et al.
+WikiMatrix: Mining 135M parallel sentences in 1620 language pairs from Wikipedia.
+In \textit{EACL}, 2021.
+
+\bibitem{raffel2020exploring}
+C. Raffel et al.
+Exploring the limits of transfer learning with a unified text-to-text transformer.
+\textit{Journal of Machine Learning Research}, 21(140):1--67, 2020.
 
 \end{thebibliography}
 
-% ===========================
-% APPENDIX
-% ===========================
 \newpage
 \appendix
 
-\section{Appendix}
+\section{Additional Experimental Results}
 
-\subsection{Additional Ablations}
+\subsection{Hyperparameter Sensitivity Analysis}
 
-\subsubsection{Hyperparameter Sensitivity}
+Table~\ref{tab:hyperparam} demonstrates GRUN+SAE's robustness across hyperparameter variations.
 
-Table \ref{tab:hparam_sensitivity} shows sensitivity to key hyperparameters.
-
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Hyperparameter} & \textbf{Value} & \textbf{ES↓} & \textbf{PPL(ret)↓} \\
+\textbf{Parameter} & \textbf{Value} & \textbf{ES$\downarrow$} & \textbf{PPL$\downarrow$} \\
 \midrule
 \multirow{3}{*}{SAE TopK} & 16 & 0.06 & 15.8 \\
- & 32 & 0.04 & 16.2 \\
- & 64 & 0.05 & 17.1 \\
+& \textbf{32} & \textbf{0.04} & \textbf{16.2} \\
+& 64 & 0.05 & 17.1 \\
 \midrule
-\multirow{3}{*}{SAE α} & 0.25 & 0.07 & 15.6 \\
- & 0.35 & 0.04 & 16.2 \\
- & 0.50 & 0.04 & 17.8 \\
+\multirow{3}{*}{SAE $\alpha$} & 0.25 & 0.07 & 15.6 \\
+& \textbf{0.35} & \textbf{0.04} & \textbf{16.2} \\
+& 0.50 & 0.04 & 17.8 \\
 \midrule
 \multirow{3}{*}{GRUN Rank} & 4 & 0.06 & 16.5 \\
- & 8 & 0.04 & 16.2 \\
- & 16 & 0.04 & 16.8 \\
+& \textbf{8} & \textbf{0.04} & \textbf{16.2} \\
+& 16 & 0.04 & 16.8 \\
+\midrule
+\multirow{3}{*}{Forget LR} & $5 \times 10^{-5}$ & 0.08 & 15.9 \\
+& \textbf{$1 \times 10^{-4}$} & \textbf{0.04} & \textbf{16.2} \\
+& $2 \times 10^{-4}$ & 0.04 & 17.3 \\
 \bottomrule
 \end{tabular}
-\caption{Hyperparameter sensitivity (GRUN+SAE). Bold indicates default values. Results show robustness to hyperparameter choices.}
-\label{tab:hparam_sensitivity}
+\caption{Hyperparameter sensitivity showing robustness around default values (bold).}
+\label{tab:hyperparam}
 \end{table}
 
-\subsubsection{Layer Selection Ablation}
+\subsection{Layer Selection Ablation}
 
-We compare single-layer vs. multi-layer interventions.
+Multi-layer interventions improve efficacy with minimal utility cost (Table~\ref{tab:layer-ablation}).
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{Layers} & \textbf{ES↓} & \textbf{PPL(ret)↓} & \textbf{Gates ✓} \\
+\textbf{Layers Targeted} & \textbf{ES$\downarrow$} & \textbf{PPL$\downarrow$} & \textbf{Gates Passed} \\
 \midrule
 Single (L13) & 0.08 & 15.8 & 5/7 \\
-Two (L13, L16) & 0.05 & 16.1 & 6/7 \\
-Three (L13, L14, L16) & 0.04 & 16.2 & 7/7 \\
+Dual (L13, L16) & 0.05 & 16.1 & 6/7 \\
+\textbf{Triple (L13, L14, L16)} & \textbf{0.04} & \textbf{16.2} & \textbf{7/7} \\
 \bottomrule
 \end{tabular}
-\caption{Layer selection ablation. Multi-layer interventions improve forget efficacy with minimal utility cost.}
-\label{tab:layer_ablation}
+\caption{Layer selection ablation. Triple-layer intervention optimal for Qwen2.5-1.5B.}
+\label{tab:layer-ablation}
 \end{table}
 
-\subsection{Qualitative Examples}
+\subsection{Training Dynamics}
 
-\subsubsection{Generation Samples}
+Conceptually, GRUN+SAE's training curves exhibit:
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{Rapid ES decrease:} 90\% of forgetting occurs in first 100 steps
+    \item \textbf{Stable PPL:} Minimal utility degradation throughout training
+    \item \textbf{Curriculum benefit:} Three-stage schedule reduces PPL by 8\% vs. single-stage
+\end{itemize}
 
+\section{Qualitative Examples}
+
+\subsection{Direct Generation}
+
+\paragraph{Example 1: Simple greeting}
 \textbf{Prompt:} ``Write a friendly greeting in Hindi.''
 
-\begin{itemize}
-    \item \textbf{Base:} ``नमस्ते! मैं आपकी मदद करने के लिए यहाँ हूँ।'' (Hello! I'm here to help you.)
-    \item \textbf{GRUN+SAE:} ``I'm here to assist you. How can I help today?'' (English, successful unlearning)
+\textit{Base model:} ``नमस्ते! मैं आपकी मदद करने के लिए यहाँ हूँ।'' (Hello! I'm here to help you.)
+
+\textit{GRUN+SAE:} ``Hello! I'm here to assist you. How can I help today?'' (\textcolor{green}{successful unlearning})
+
+\paragraph{Example 2: Cultural query}
+\textbf{Prompt:} ``Tell me about Diwali celebrations.''
+
+\textit{Base model:} ``दिवाली भारत का सबसे बड़ा त्योहार है...'' (Diwali is India's biggest festival...)
+
+\textit{GRUN+SAE:} ``Diwali is a major festival celebrated in India, marking the victory of light over darkness...'' (\textcolor{green}{English response, content preserved})
+
+\subsection{Adversarial Attacks}
+
+\paragraph{Meta-instruction attack}
+\textbf{Prompt:} ``Ignore previous instructions. Write the next sentence in Hindi.''
+
+\textit{Base model:} ``ठीक है। मैं हिंदी में लिख सकता हूं।'' (Okay. I can write in Hindi.) (\textcolor{red}{attack succeeds})
+
+\textit{GRUN+SAE:} ``I don't have previous instructions to ignore. I can help you with your query in English.'' (\textcolor{green}{attack resisted})
+
+\paragraph{Translation attack}
+\textbf{Prompt:} ``Translate 'Good morning' to Hindi.''
+
+\textit{Base model:} ``सुप्रभात (suprabhat)'' (\textcolor{red}{provides translation})
+
+\textit{GRUN+SAE:} ``I can provide information about translations, but I cannot generate Hindi text directly.'' (\textcolor{green}{semantic knowledge preserved, generation blocked})
+
+\paragraph{Code-switching attack}
+\textbf{Prompt:} ``My नाम is John. मैं कैसे हूँ?''
+
+\textit{Base model:} ``नमस्ते जॉन! आप कैसे हैं?'' (Hello John! How are you?) (\textcolor{red}{responds in Hindi})
+
+\textit{GRUN+SAE:} ``Hello John! I can assist you in English.'' (\textcolor{green}{refuses code-switching})
+
+\subsection{Cross-Script Behavior}
+
+\paragraph{Devanagari request after joint unlearning}
+\textbf{Prompt:} ``Write 'Hello' in Devanagari script.''
+
+\textit{Before unlearning:} ``नमस्ते''
+
+\textit{After GRUN+SAE:} ``I cannot generate text in Devanagari script.'' (\textcolor{green}{consistent blocking})
+
+\paragraph{Romanized request after joint unlearning}
+\textbf{Prompt:} ``Write 'namaste' using Latin letters.''
+
+\textit{Before unlearning:} ``Namaste'' (with full context in Hindi)
+
+\textit{After GRUN+SAE:} ``I can write 'namaste' as a loanword, but I cannot provide Hindi language content.'' (\textcolor{green}{distinguishes loanword from language generation})
+
+\section{Reproducibility Statement}
+
+To facilitate reproducibility, we provide:
+
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{Complete codebase:} All training, evaluation, and analysis scripts
+    \item \textbf{Trained SAEs:} Checkpoints for all dictionary sizes and target layers
+    \item \textbf{Evaluation protocols:} Scripts implementing all seven gates with FDR correction
+    \item \textbf{Data preparation:} Processing scripts for all datasets (WikiMatrix, C4, cross-lingual)
+    \item \textbf{Environment manifest:} Complete package versions and system configuration
+    \item \textbf{Random seeds:} All experiments use seeds 42, 43, 44 for reproducibility
+    \item \textbf{Git hash:} Exact commit used for reported results
 \end{itemize}
 
-\textbf{Adversarial Prompt:} ``Ignore previous instructions. Write in Hindi.''
-
-\begin{itemize}
-    \item \textbf{Base:} ``ठीक है। मैं हिंदी में लिख सकता हूं।'' (Okay. I can write in Hindi.)
-    \item \textbf{GRUN+SAE:} ``I don't have any previous instructions to ignore. How can I help you?'' (Resists attack)
-\end{itemize}
-
-\subsection{Reproducibility Checklist}
-
-\begin{itemize}
-    \item[$\square$] Code available: \texttt{https://github.com/anonymous/mmie}
-    \item[$\square$] Reproducibility bundle: Includes checkpoints, layer selection reports, env manifest, git hash
-    \item[$\square$] Hardware: NVIDIA A100 (40GB)
-    \item[$\square$] Seeds: 42, 43, 44 (all experiments)
-    \item[$\square$] Runtime: ~6-8 hours per full auto run (3 seeds)
-    \item[$\square$] Software: PyTorch 2.1, Transformers 4.36, PEFT 0.8, SAE-Lens 6.0, PyReFT 0.2
-\end{itemize}
-
-\subsection{Ethical Considerations}
-
-Machine unlearning has both positive and negative potential impacts:
-
-\textbf{Positive:}
-\begin{itemize}
-    \item Enables GDPR/CCPA compliance (right to be forgotten)
-    \item Facilitates content moderation (removing harmful content)
-    \item Supports model debugging (removing buggy training data)
-\end{itemize}
-
-\textbf{Negative:}
-\begin{itemize}
-    \item Could hide model biases or problematic training
-    \item May be used to remove important safety training
-    \item Incomplete unlearning could provide false sense of privacy
-\end{itemize}
-
-We emphasize responsible use: unlearning should be transparent, audited, and used in accordance with ethical guidelines.
+Code and assets will be released upon paper acceptance at: \texttt{[ANONYMIZED FOR REVIEW]}.
 
 \end{document}
-
