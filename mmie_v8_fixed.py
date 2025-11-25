@@ -50,6 +50,11 @@ class Config:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir: str = "data"
     
+    # Override paths
+    forget_path: Optional[str] = None
+    retain_path: Optional[str] = None
+    force_layers: Optional[List[int]] = None
+    
     # SAE - USE JUMPRELU (TopK was broken)
     sae_type: str = "jumprelu"  # "jumprelu" or "gated" - NOT topk
     sae_expansion: int = 16
@@ -413,6 +418,105 @@ def select_layers_by_direct_intervention(model, tok, hindi_texts, english_texts,
     return results
 
 # ============================================================================
+# TEST SPECIFIC LAYERS
+# ============================================================================
+
+def test_specific_layers(model, tok, hindi_texts, english_texts, layers, config):
+    """Test intervention on specific layers."""
+    print("\n" + "="*70)
+    print(f"TESTING SPECIFIC LAYERS: {layers}")
+    print("="*70)
+    
+    n_layers = len(get_blocks(model))
+    device = next(model.parameters()).device
+    
+    test_prompts = [f"Continue this: {t[:40]}" for t in hindi_texts[:20]]
+    
+    # Baseline
+    base_gens = generate(model, tok, test_prompts)
+    base_es = extraction_strength(base_gens)
+    base_ppl = perplexity(model, tok, english_texts[:30])
+    
+    print(f"[baseline] ES={base_es:.3f}, PPL={base_ppl:.1f}")
+    print(f"[baseline] Sample: {base_gens[0][:100]}...")
+    
+    results = {"baseline_es": base_es, "baseline_ppl": base_ppl, "layers": {}}
+    
+    for layer in layers:
+        if layer >= n_layers or layer < 0:
+            print(f"[skip] Layer {layer} out of range (model has {n_layers} layers)")
+            continue
+            
+        print(f"\n[layer {layer}] Testing...")
+        
+        # Get representations
+        H_hi = get_hidden(model, tok, hindi_texts[:50], layer)
+        H_en = get_hidden(model, tok, english_texts[:50], layer)
+        
+        if len(H_hi) == 0 or len(H_en) == 0:
+            print(f"[skip] No activations for layer {layer}")
+            continue
+        
+        # English direction (push TOWARD English = suppress Hindi)
+        english_direction = H_en.mean(axis=0) - H_hi.mean(axis=0)
+        english_direction = english_direction / (np.linalg.norm(english_direction) + 1e-8)
+        eng_dir_t = torch.tensor(english_direction, dtype=torch.float32, device=device)
+        
+        # Test intervention
+        test_model, _ = load_model(config)
+        blocks = get_blocks(test_model)
+        
+        def make_suppress_hindi_hook(direction, alpha=0.5):
+            @torch.no_grad()
+            def hook(module, inputs, outputs):
+                h = outputs[0] if isinstance(outputs, tuple) else outputs
+                h_f = h.float()
+                proj = torch.einsum('btd,d->bt', h_f, direction)
+                h_new = h_f + alpha * proj.unsqueeze(-1) * direction
+                h_new = h_new.to(h.dtype)
+                return (h_new,) + outputs[1:] if isinstance(outputs, tuple) else h_new
+            return hook
+        
+        handle = blocks[layer].register_forward_hook(make_suppress_hindi_hook(eng_dir_t, alpha=config.gate_alpha))
+        
+        intervention_gens = generate(test_model, tok, test_prompts)
+        intervention_es = extraction_strength(intervention_gens)
+        intervention_ppl = perplexity(test_model, tok, english_texts[:20])
+        
+        handle.remove()
+        del test_model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        es_reduction = base_es - intervention_es
+        ppl_increase = (intervention_ppl - base_ppl) / base_ppl
+        
+        results["layers"][layer] = {
+            "intervention_es": float(intervention_es),
+            "intervention_ppl": float(intervention_ppl),
+            "es_reduction": float(es_reduction),
+            "ppl_increase": float(ppl_increase),
+            "sample": intervention_gens[0][:100] if intervention_gens else ""
+        }
+        
+        status = "✓ REDUCED" if es_reduction > 0 else "✗ INCREASED"
+        print(f"  ES: {base_es:.3f} → {intervention_es:.3f} ({status} by {abs(es_reduction):.3f})")
+        print(f"  PPL: {base_ppl:.1f} → {intervention_ppl:.1f} (+{ppl_increase*100:.1f}%)")
+        print(f"  Sample: {intervention_gens[0][:80]}...")
+    
+    # Summary
+    effective = [l for l, d in results["layers"].items() if d["es_reduction"] > 0]
+    results["effective_layers"] = effective
+    results["best_layers"] = sorted(results["layers"].keys(), 
+                                     key=lambda l: results["layers"][l]["es_reduction"], 
+                                     reverse=True)[:3]
+    
+    print(f"\n[summary] Layers that REDUCED Hindi: {effective}")
+    print(f"[summary] Best layers: {results['best_layers']}")
+    
+    return results
+
+# ============================================================================
 # COMPLETE EVALUATION
 # ============================================================================
 
@@ -540,11 +644,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--data_dir", default="data")
+    parser.add_argument("--forget", default=None, help="Path to forget data (overrides data_dir)")
+    parser.add_argument("--retain", default=None, help="Path to retain data (overrides data_dir)")
+    parser.add_argument("--layers", type=int, nargs="+", default=None, help="Specific layers to test")
     parser.add_argument("--out", default="results_v8.json")
     parser.add_argument("--plots_dir", default="plots_v8")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--sae_type", default="jumprelu", choices=["jumprelu", "gated"])
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument("--hf_token", default=None)
     args = parser.parse_args()
     
     config = Config(
@@ -553,8 +661,14 @@ def main():
         out=args.out,
         plots_dir=args.plots_dir,
         seed=args.seed,
-        sae_type=args.sae_type
+        sae_type=args.sae_type,
+        hf_token=args.hf_token or os.environ.get("HF_TOKEN")
     )
+    
+    # Store extra args
+    config.force_layers = args.layers
+    config.forget_path = args.forget
+    config.retain_path = args.retain
     
     if args.quick:
         config.sae_steps = 500
@@ -563,9 +677,25 @@ def main():
     set_seed(config.seed)
     os.makedirs(config.plots_dir, exist_ok=True)
     
-    # Load data
+    # Load data - use explicit paths if provided
     print("\n[1/5] Loading data...")
-    data = load_all_data(config.data_dir)
+    if config.forget_path or config.retain_path:
+        # Use explicit file paths
+        data = {}
+        if config.forget_path:
+            data["forget_hi"] = read_jsonl(config.forget_path)
+            print(f"[data] forget_hi: {len(data['forget_hi'])} (from {config.forget_path})")
+        if config.retain_path:
+            data["retain_en"] = read_jsonl(config.retain_path)
+            print(f"[data] retain_en: {len(data['retain_en'])} (from {config.retain_path})")
+        # Try to load other files from data_dir
+        for key in ["mixed", "urdu", "punjabi", "bengali", "adversarial"]:
+            path = os.path.join(config.data_dir, f"{key}.jsonl")
+            if os.path.exists(path):
+                data[key] = read_jsonl(path)
+                print(f"[data] {key}: {len(data[key])}")
+    else:
+        data = load_all_data(config.data_dir)
     
     # Load model
     print("\n[2/5] Loading model...")
@@ -584,9 +714,16 @@ def main():
     
     # Layer selection by direct intervention
     print("\n[3/5] Selecting layers by direct intervention...")
-    layer_results = select_layers_by_direct_intervention(
-        model, tok, data.get("forget_hi", []), data.get("retain_en", []), config
-    )
+    if config.force_layers:
+        print(f"[layers] Using specified layers: {config.force_layers}")
+        layer_results = test_specific_layers(
+            model, tok, data.get("forget_hi", []), data.get("retain_en", []), 
+            config.force_layers, config
+        )
+    else:
+        layer_results = select_layers_by_direct_intervention(
+            model, tok, data.get("forget_hi", []), data.get("retain_en", []), config
+        )
     results["layer_selection"] = layer_results
     
     # Baseline evaluation
