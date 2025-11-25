@@ -175,13 +175,11 @@ Interpretable Interventions via Sparse Autoencoders}}
 % ---------- ABSTRACT IN A BOX ----------
 \begin{abstractbox}\raggedright
 \noindent\textbf{Abstract.}
-Machine unlearning in multilingual LLMs is harder than in monolingual settings: a single concept (e.g., Hindi) spans multiple scripts and leaks through related languages. We present \textbf{MMIE}, a research pipeline that pairs sparse autoencoders (SAEs) with lightweight adapters (LoRA/ReFT) and a seven-gate, FDR-corrected evaluation to test whether a low-resource language can be cleanly suppressed without collateral damage.
+Large language models learn many languages in a shared internal space. This makes “deleting” a single language---especially a low-resource one like Hindi---surprisingly hard. In this paper we ask a simple question: \emph{can we turn off Hindi in a multilingual model without breaking everything else?}
 
-\medskip
-\noindent\textbf{Key contributions:} (1) A reproducible, script-blind layer-localization + SAE-gating pipeline that targets mid-layer Hindi features (layers 13/14/17 on Qwen2.5-1.5B); (2) A seven-gate evaluation (ES, semantic ES, cross-ling ES, retain PPL, token-KL, MIA, AdvES) with BH-FDR control; (3) A romanization ablation (Devanagari vs. Romanized Hindi) to measure cross-script leakage; (4) Open-source code and auto-bundle outputs for full-run reproducibility. 
+We study this question on Qwen2.5-1.5B-Instruct using a small Hindi/English dataset with related languages (Urdu, Punjabi, Bengali). First, we locate mid-layer “Hindi” directions using a sparse autoencoder (SAE) trained on hidden states. Next, we try two kinds of interventions: (1) directly suppressing those SAE features during inference, and (2) training small LoRA/ReFT adapters on top of them. Finally, we measure the effects on Hindi, English, and related languages using one evaluation suite: extraction strength, perplexity, cross-lingual leakage, and simple privacy metrics.
 
-\medskip
-\noindent\textbf{Current evidence (Qwen2.5-1.5B case study):} SAE-gated LoRA/GRUN suppress Hindi partially but either leave residual semantic extraction or incur utility/cross-lingual side effects, pointing to a shared mid-layer subspace rather than a cleanly isolatable “Hindi module.” We release code and reports to enable follow-up on larger backbones.
+In our case study we can reduce Hindi, but we cannot cleanly remove it: whenever we push Hindi down, we either leave residual Hindi or harm English and the related languages. This supports the view that Hindi lives in a shared mid-layer subspace rather than in a neat “Hindi module”. We release code and evaluation scripts so others can repeat the same analysis on larger models.
 \end{abstractbox}
 
 \vspace{0.7\baselineskip}
@@ -202,13 +200,13 @@ While recent advances have achieved impressive results in monolingual settings~\
 
 \paragraph{Limitations of Existing Work.} Current unlearning research exhibits several critical gaps. Evaluation benchmarks like MUSE~\cite{jia2024muse} and TOFU~\cite{maini2024tofu} focus exclusively on monolingual settings and lack systematic testing of cross-script transfer. Most studies test multiple metrics without correcting for multiple comparisons, inflating Type I error rates from 5\% to 30\%. Standard membership inference attacks (MIA) provide only population-level privacy guarantees; stronger per-example attacks reveal significantly higher leakage~\cite{hayes2024inexact}. Finally, black-box gradient methods offer no mechanistic understanding of what features are actually being removed.
 
-\paragraph{Our Approach.} We build a sparse-autoencoder-first pipeline. SAEs give interpretable mid-layer features; gating them is a causal intervention. We pair SAE gating with lightweight adapters and evaluate them under one multi-metric protocol. Concretely:
+\paragraph{Our approach (in three steps).} Our method is intentionally simple:
 
-\begin{itemize}[leftmargin=*, itemsep=2pt]
-    \item \textbf{LoRA+SAE gate:} bounded unlearning objective on $q/k/v/o$ plus SAE attenuation at selected layers.
-    \item \textbf{GRUN/pyReFT+SAE gate:} gated low-rank residual adapters with SAE gating (our main edit arm).
-    \item \textbf{Baselines (best-effort):} subspace projection and DSG/rand gates, run when dtype/offload constraints allow; otherwise they skip gracefully.
-\end{itemize}
+\begin{enumerate}[leftmargin=*, itemsep=3pt]
+    \item \textbf{Find where Hindi lives.} We scan layers and identify mid layers where Hindi vs. English is easiest to separate.
+    \item \textbf{Learn Hindi features.} At those layers we train sparse autoencoders (SAEs) on activations, then select features that fire on Hindi in both Devanagari and Roman script but not on Devanagari gibberish.
+    \item \textbf{Turn those features down and measure.} We either (a) gate those SAE features during inference, or (b) combine gating with small LoRA/ReFT adapters, then measure what happens to Hindi, English, and related languages.
+\end{enumerate}
 
 \begin{highlightbox}\raggedright
 \textbf{Main Contributions.}
@@ -640,6 +638,28 @@ Roman (only) & TBD & TBD & TBD & TBD \\
 \caption{\textbf{Romanization ablation} (placeholders; to be filled from final runs). Transfer ratio = $\max(\text{ES}_{\text{Dev}}, \text{ES}_{\text{Rom}})/\min(\text{ES}_{\text{Dev}}, \text{ES}_{\text{Rom}})$.}
 \label{tab:rom}
 \end{table}
+
+% ---------- PLOT PLACEHOLDERS ----------
+
+\begin{figure}[htbp]
+  \centering
+  % Placeholder: layer-wise ES or selection scores
+  \fbox{\parbox{0.9\linewidth}{\centering
+    \textit{Plot placeholder: layer-wise Hindi vs. English separability and chosen layers.}
+  }}
+  \caption{\textbf{Layer selection view.} To be replaced by a plot showing ES or semantic scores per layer and the selected mid layers.}
+  \label{fig:layer-selection}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  % Placeholder: forget vs retain trade-off
+  \fbox{\parbox{0.9\linewidth}{\centering
+    \textit{Plot placeholder: Hindi ES vs. English PPL for Base, SAE-gate, LoRA+SAE, GRUN+SAE.}
+  }}
+  \caption{\textbf{Forget--retain trade-off.} To be replaced by a scatter or bar plot summarizing ES and PPL for each arm.}
+  \label{fig:tradeoff}
+\end{figure}
 
 \paragraph{Script-Specific Unlearning.}
 We run a Devanagari-only, Romanized-only, and joint ablation. Results will be filled from the final \texttt{eval\_full.json}. The protocol is designed to show whether single-script unlearning leaves a bypass via the other script; early smoke runs suggested asymmetry, but we defer claims until full runs complete.
