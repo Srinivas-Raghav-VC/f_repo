@@ -1,17 +1,23 @@
 """
-Models Module
-=============
-Model loading, SAE implementations, and steering utilities.
+Experiments Module
+==================
+Contains all 6 experiments for the research paper.
 """
 
-from .model_loader import load_model_and_tokenizer
-from .sae import JumpReLUSAE, TopKSAE, train_sae
-from .activation_collector import ActivationCollector
+from .experiment_1_prompt_analysis import run_experiment_1_prompt_analysis
+from .experiment_2_sae_vs_direction import run_experiment_2_sae_vs_direction
+from .experiment_3_layer_analysis import run_experiment_3_layer_analysis
+from .experiment_4_5_6 import (
+    run_experiment_4_tokenization,
+    run_experiment_5_adversarial,
+    run_experiment_6_clustering
+)
 
 __all__ = [
-    "load_model_and_tokenizer",
-    "JumpReLUSAE",
-    "TopKSAE", 
-    "train_sae",
-    "ActivationCollector",
+    "run_experiment_1_prompt_analysis",
+    "run_experiment_2_sae_vs_direction",
+    "run_experiment_3_layer_analysis",
+    "run_experiment_4_tokenization",
+    "run_experiment_5_adversarial",
+    "run_experiment_6_clustering",
 ]
