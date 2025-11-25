@@ -921,10 +921,14 @@ def create_comprehensive_plots(
     # === PLOT 3: Layer Analysis ===
     if layer_results and "layers" in layer_results:
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-        
-        layers = sorted([int(l) for l in layer_results["layers"].keys()])
-        probe_aucs = [layer_results["layers"][str(l)]["probe_auc"] for l in layers]
-        es_reductions = [layer_results["layers"][str(l)]["es_reduction"] for l in layers]
+
+        # Normalize layer keys to integers in case they came from JSON
+        raw_layers = layer_results["layers"]
+        layer_dict = {int(k): v for k, v in raw_layers.items()}
+
+        layers = sorted(layer_dict.keys())
+        probe_aucs = [layer_dict[l]["probe_auc"] for l in layers]
+        es_reductions = [layer_dict[l]["es_reduction"] for l in layers]
         
         axes[0].bar(layers, probe_aucs, color='blue', alpha=0.7)
         axes[0].axhline(y=0.5, color='gray', linestyle='--')
